@@ -10,13 +10,13 @@ mb2_start:
     dd 0x100000000 - (0xE85250D6 + 0 + (mb2_end - mb2_start))
 
     ; Framebuffer request tag (type 5), optional
-    align 8
-    dw 5                                             ; type = framebuffer
-    dw 1                                             ; flags = optional
-    dd 20                                            ; size
-    dd 1024                                          ; width
-    dd 768                                           ; height
-    dd 32                                            ; depth (bpp)
+   ; align 8
+   ; dw 5                                             ; type = framebuffer
+   ; dw 1                                             ; flags = optional
+   ; dd 20                                            ; size
+   ; dd 1024                                          ; width
+   ; dd 768                                           ; height
+   ; dd 32                                            ; depth (bpp)
 
     ; End tag
     align 8
