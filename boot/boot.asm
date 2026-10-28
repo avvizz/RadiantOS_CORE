@@ -10,13 +10,13 @@ mb2_start:
     dd 0x100000000 - (0xE85250D6 + 0 + (mb2_end - mb2_start))
 
     ; Framebuffer request tag (type 5), optional
-   ; align 8
-   ; dw 5                                             ; type = framebuffer
-   ; dw 1                                             ; flags = optional
-   ; dd 20                                            ; size
-   ; dd 1024                                          ; width
-   ; dd 768                                           ; height
-   ; dd 32                                            ; depth (bpp)
+    align 8
+    dw 5                                             ; type = framebuffer
+    dw 1                                             ; flags = optional
+    dd 20                                            ; size
+    dd 1024                                          ; width
+    dd 768                                           ; height
+    dd 32                                            ; depth (bpp)
 
     ; End tag
     align 8
@@ -29,7 +29,6 @@ section .bss
 align 4096
 p4:  resb 4096
 p3:  resb 4096
-; Four P2 tables to identity-map 4 GB with 2 MiB pages
 p2_0: resb 4096
 p2_1: resb 4096
 p2_2: resb 4096
@@ -58,12 +57,10 @@ _start:
     jz .no_long_mode
 
     ; Identity map first 4 GiB (2 MiB pages)
-    ; P4[0] -> P3
     mov eax, p3
     or eax, 0b11
     mov [p4], eax
 
-    ; P3[0..3] -> p2_0 .. p2_3
     mov eax, p2_0
     or eax, 0b11
     mov [p3 + 0*8], eax
@@ -77,13 +74,11 @@ _start:
     or eax, 0b11
     mov [p3 + 3*8], eax
 
-    ; Fill each P2 with 512 huge pages
-    ; Base physical for each: 0, 1GiB, 2GiB, 3GiB
     mov ecx, 0
 .map_p2_0:
     mov eax, ecx
-    shl eax, 21                  ; * 2MiB
-    or eax, 0b10000011           ; present | writable | huge
+    shl eax, 21
+    or eax, 0b10000011
     mov [p2_0 + ecx*8], eax
     inc ecx
     cmp ecx, 512
@@ -93,7 +88,7 @@ _start:
 .map_p2_1:
     mov eax, ecx
     shl eax, 21
-    add eax, 0x40000000          ; +1 GiB
+    add eax, 0x40000000
     or eax, 0b10000011
     mov [p2_1 + ecx*8], eax
     inc ecx
@@ -104,7 +99,7 @@ _start:
 .map_p2_2:
     mov eax, ecx
     shl eax, 21
-    add eax, 0x80000000          ; +2 GiB
+    add eax, 0x80000000
     or eax, 0b10000011
     mov [p2_2 + ecx*8], eax
     inc ecx
@@ -115,7 +110,7 @@ _start:
 .map_p2_3:
     mov eax, ecx
     shl eax, 21
-    add eax, 0xC0000000          ; +3 GiB
+    add eax, 0xC0000000
     or eax, 0b10000011
     mov [p2_3 + ecx*8], eax
     inc ecx
@@ -126,14 +121,14 @@ _start:
     mov eax, p4
     mov cr3, eax
     mov eax, cr4
-    or eax, 1 << 5               ; PAE
+    or eax, 1 << 5
     mov cr4, eax
-    mov ecx, 0xC0000080          ; EFER
+    mov ecx, 0xC0000080
     rdmsr
-    or eax, 1 << 8               ; LME
+    or eax, 1 << 8
     wrmsr
     mov eax, cr0
-    or eax, 1 << 31              ; PG
+    or eax, 1 << 31
     mov cr0, eax
 
     lgdt [gdt64.pointer]
@@ -151,8 +146,8 @@ long_mode:
     mov es, ax
     mov fs, ax
     mov gs, ax
-    mov edi, edi                 ; zero-extend magic
-    mov esi, ebx                 ; Multiboot info
+    mov edi, edi
+    mov esi, ebx
     call kernel_main
 .hang:
     cli
@@ -162,7 +157,7 @@ long_mode:
 section .rodata
 gdt64:
     dq 0
-    dq (1 << 43) | (1 << 44) | (1 << 47) | (1 << 53)  ; 64-bit code
+    dq (1 << 43) | (1 << 44) | (1 << 47) | (1 << 53)
 .pointer:
     dw .pointer - gdt64 - 1
     dq gdt64
