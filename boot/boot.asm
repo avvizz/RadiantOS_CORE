@@ -1,5 +1,5 @@
 ; AwizzOS boot: Multiboot2 -> Long Mode -> kernel_main
-; Requests framebuffer (preferred 1024x768x32)
+; Requests framebuffer 1024x768x32
 
 section .multiboot2
 align 8

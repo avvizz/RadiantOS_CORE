@@ -35,7 +35,7 @@ iso: build/awizz_os.bin
 	grub-mkrescue -o build/awizz_os.iso build/iso
 
 run: iso
-	qemu-system-x86_64 -cdrom build/awizz_os.iso -m 256M
+	qemu-system-x86_64 -cdrom build/awizz_os.iso -m 256M -vga std
 
 clean:
 	rm -rf build

@@ -1,4 +1,4 @@
-# AwizzOS
+# AwizzOS v0.3
 
 64-bit (x86-64) hobby operating system written in C and C++.
 Boots via GRUB (Multiboot2), enters Long Mode in `boot/boot.asm`.
@@ -32,8 +32,8 @@ make iso      # only build/awizz_os.iso
 | clear / cls    | clear terminal                       |
 | uptime         | system uptime                        |
 | about          | system info                          |
-| echo &lt;text&gt;   | print text                           |
-| color &lt;0-15&gt;  | set text color                       |
+| echo <text>    | print text                           |
+| color <0-15>   | set text color                       |
 | box            | demo graphical window                |
 | lines          | colorful lines demo                  |
 | info           | framebuffer details                  |

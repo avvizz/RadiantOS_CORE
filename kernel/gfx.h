@@ -31,6 +31,10 @@ typedef uint32_t color_t;
 #define COLOR_ORANGE    0xFFA500
 #define COLOR_NAVY      0x000080
 #define COLOR_TEAL      0x008080
+#define COLOR_BG        0x0D1117
+#define COLOR_PANEL     0x161B22
+#define COLOR_ACCENT    0x238636
+#define COLOR_TITLE     0x1F6FEB
 
 void gfx_init(uint8_t *addr, uint32_t width, uint32_t height,
               uint32_t pitch, uint8_t bpp);

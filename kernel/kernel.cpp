@@ -320,9 +320,6 @@ static void shell(void) {
     }
 }
 
-// Periodic status update from timer is still text-mode only;
-// for graphics we refresh uptime on demand / every few seconds via shell.
-
 extern "C" void kernel_main(unsigned magic, unsigned long mbinfo) {
     // Try graphics first
     int have_gfx = mb2_init_framebuffer(magic, mbinfo);
