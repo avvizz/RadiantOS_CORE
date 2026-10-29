@@ -1,4 +1,4 @@
-name: Build AwizzOS
+name: Build RadiantOS
 
 on:
   push:
