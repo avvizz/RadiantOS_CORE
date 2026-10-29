@@ -1,4 +1,4 @@
-/* PS/2 клавиатура (IRQ1), scancode set 1, раскладка US — AwizzOS */
+/* PS/2 клавиатура (IRQ1), scancode set 1, раскладка US — RadiantOS */
 #include "interrupts.h"
 #include "io.h"
 #include "vga.h"

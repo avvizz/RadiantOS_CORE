@@ -1,4 +1,4 @@
-/* Таймер PIT (IRQ0) для AwizzOS */
+/* Таймер PIT (IRQ0) для RadiantOS */
 #include "interrupts.h"
 #include "io.h"
 #include "vga.h"
@@ -44,7 +44,7 @@ static void show_uptime(void) {
         gfx_fill_rect(x - 4, 0, fb_width - x + 4, 24, 0x1A3A6E);
         gfx_draw_string(x, 4, right, 0xFFFF00, 0x1A3A6E);
     } else {
-        vga_status("AwizzOS v0.3", right);
+        vga_status("RadiantOS v0.4", right);
     }
 }
 

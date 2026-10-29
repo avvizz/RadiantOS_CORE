@@ -1,4 +1,4 @@
-// AwizzOS kernel – C++ (no exceptions / RTTI / libc)
+// RadiantOS kernel – C++ (no exceptions / RTTI / libc)
 #include "vga.h"
 #include "interrupts.h"
 #include "multiboot.h"
@@ -14,20 +14,41 @@ static int strncmp(const char *a, const char *b, int n) {
     if (n < 0) return 0;
     return (unsigned char)*a - (unsigned char)*b;
 }
+static int strlen(const char *s) {
+    int n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
+// ---- Radiant theme colors ----
+#define COL_BG          0x0B0E14
+#define COL_PANEL       0x12151C
+#define COL_BORDER      0x2A3A5A
+#define COL_ACCENT      0x6C5CE7   // radiant purple
+#define COL_ACCENT2     0x00CEC9   // cyan
+#define COL_TITLEBG     0x1A1F2E
+#define COL_STATUS      0x161B26
+#define COL_TEXT        0xD0D4E0
+#define COL_DIM         0x6B7280
+#define COL_GREEN       0x2ECC71
+#define COL_YELLOW      0xF1C40F
+#define COL_RED         0xE74C3C
+#define COL_WHITE       0xFFFFFF
 
 // ---- graphical terminal state ----
 static int term_x = 0, term_y = 0;
-static int term_cols = 80, term_rows = 40;
-static int term_margin_x = 8, term_margin_y = 28;
-static color_t term_fg = COLOR_LIGHTGRAY;
-static color_t term_bg = 0x101018;
-static color_t status_bg = 0x1A3A6E;
+static int term_cols = 80, term_rows = 30;
+static int term_margin_x = 12, term_margin_y = 48;
+static int term_win_x = 8, term_win_y = 32;
+static int term_win_w = 0, term_win_h = 0;
+static color_t term_fg = COL_TEXT;
+static color_t term_bg = COL_PANEL;
+static int cw = 8, ch = 16;   // char metrics (filled after gfx init)
 
 static void term_scroll(void) {
-    int ch = gfx_char_height();
-    int cw = gfx_char_width();
+    if (!gfx_ready) return;
     int content_h = term_rows * ch;
-    // simple full redraw scroll: move rows up by one char height
+    // simple full redraw scroll (pixel copy)
     for (int y = 0; y < content_h - ch; y++) {
         for (int x = 0; x < term_cols * cw; x++) {
             color_t p = gfx_getpixel(term_margin_x + x, term_margin_y + y + ch);
@@ -53,15 +74,15 @@ static void term_putc(char c) {
     if (c == '\b') {
         if (term_x > 0) {
             term_x--;
-            gfx_draw_char(term_margin_x + term_x * 8,
-                          term_margin_y + term_y * 16,
+            gfx_draw_char(term_margin_x + term_x * cw,
+                          term_margin_y + term_y * ch,
                           ' ', term_fg, term_bg);
         }
         return;
     }
     if (c < 32) return;
-    gfx_draw_char(term_margin_x + term_x * 8,
-                  term_margin_y + term_y * 16,
+    gfx_draw_char(term_margin_x + term_x * cw,
+                  term_margin_y + term_y * ch,
                   c, term_fg, term_bg);
     term_x++;
     if (term_x >= term_cols) {
@@ -81,40 +102,85 @@ static void term_clear(void) {
         return;
     }
     gfx_fill_rect(term_margin_x, term_margin_y,
-                  term_cols * 8, term_rows * 16, term_bg);
+                  term_cols * cw, term_rows * ch, term_bg);
     term_x = term_y = 0;
 }
 
-static void draw_status_bar(const char *right) {
+// ---- UI drawing ----
+static void draw_top_bar(const char *right) {
     if (!gfx_ready) return;
-    gfx_fill_rect(0, 0, fb_width, 24, status_bg);
-    gfx_draw_string(8, 4, "AwizzOS v0.3  |  Graphical Mode", COLOR_WHITE, status_bg);
+    gfx_fill_rect(0, 0, fb_width, 28, COL_STATUS);
+    // accent line
+    gfx_hline(0, 27, fb_width, COL_ACCENT);
+
+    gfx_draw_string(10, 6, "RadiantOS", COL_ACCENT2, COL_STATUS);
+    gfx_draw_string(10 + 9*8 + 8, 6, "v0.4", COL_DIM, COL_STATUS);
+
     if (right) {
-        int len = 0;
-        while (right[len]) len++;
-        int x = fb_width - len * 8 - 12;
+        int len = strlen(right);
+        int x = (int)fb_width - len * cw - 12;
         if (x < 200) x = 200;
-        gfx_draw_string(x, 4, right, COLOR_YELLOW, status_bg);
+        gfx_draw_string(x, 6, right, COL_YELLOW, COL_STATUS);
     }
-    // bottom bar
-    gfx_fill_rect(0, fb_height - 20, fb_width, 20, status_bg);
-    gfx_draw_string(8, fb_height - 16, "Type 'help' for commands", COLOR_LIGHTGRAY, status_bg);
+}
+
+static void draw_bottom_bar(void) {
+    if (!gfx_ready) return;
+    int y = (int)fb_height - 24;
+    gfx_fill_rect(0, y, fb_width, 24, COL_STATUS);
+    gfx_hline(0, y, fb_width, COL_BORDER);
+    gfx_draw_string(12, y + 5, "[Terminal]  help | clear | about | box | lines", COL_DIM, COL_STATUS);
+    gfx_draw_string((int)fb_width - 12*8 - 12, y + 5, "x86-64", COL_ACCENT2, COL_STATUS);
+}
+
+static void draw_terminal_window(void) {
+    if (!gfx_ready) return;
+    // window chrome
+    gfx_fill_rect(term_win_x, term_win_y, term_win_w, term_win_h, term_bg);
+    gfx_draw_rect(term_win_x, term_win_y, term_win_w, term_win_h, COL_BORDER);
+    // title bar
+    gfx_fill_rect(term_win_x + 1, term_win_y + 1, term_win_w - 2, 22, COL_TITLEBG);
+    gfx_draw_string(term_win_x + 10, term_win_y + 4, "Terminal", COL_WHITE, COL_TITLEBG);
+    // fake window buttons
+    gfx_fill_rect(term_win_x + term_win_w - 18, term_win_y + 5, 12, 12, COL_RED);
+    gfx_fill_rect(term_win_x + term_win_w - 34, term_win_y + 5, 12, 12, COL_YELLOW);
+    gfx_fill_rect(term_win_x + term_win_w - 50, term_win_y + 5, 12, 12, COL_GREEN);
 }
 
 static void ui_init(void) {
     if (!gfx_ready) return;
-    term_cols = (fb_width - 16) / 8;
-    if (term_cols > 120) term_cols = 120;
-    term_rows = (fb_height - 28 - 24) / 16;
-    if (term_rows < 10) term_rows = 10;
-    term_margin_x = 8;
-    term_margin_y = 28;
+    cw = gfx_char_width();
+    ch = gfx_char_height();
 
-    gfx_clear(0x0A0A12);
-    draw_status_bar("Booting...");
-    // terminal background panel
-    gfx_fill_rect(4, 26, fb_width - 8, fb_height - 50, term_bg);
-    gfx_draw_rect(4, 26, fb_width - 8, fb_height - 50, 0x2A4A7E);
+    // layout: top bar 28px, bottom 24px, window with margins
+    term_win_x = 8;
+    term_win_y = 36;
+    term_win_w = (int)fb_width - 16;
+    term_win_h = (int)fb_height - 36 - 32;
+
+    term_margin_x = term_win_x + 8;
+    term_margin_y = term_win_y + 28;
+    term_cols = (term_win_w - 16) / cw;
+    if (term_cols > 140) term_cols = 140;
+    term_rows = (term_win_h - 36) / ch;
+    if (term_rows < 8) term_rows = 8;
+
+    gfx_clear(COL_BG);
+    draw_top_bar("Booting...");
+    draw_bottom_bar();
+    draw_terminal_window();
+}
+
+static void refresh_chrome(const char *status) {
+    draw_top_bar(status);
+    draw_bottom_bar();
+    // redraw only the window border/title (content stays)
+    gfx_draw_rect(term_win_x, term_win_y, term_win_w, term_win_h, COL_BORDER);
+    gfx_fill_rect(term_win_x + 1, term_win_y + 1, term_win_w - 2, 22, COL_TITLEBG);
+    gfx_draw_string(term_win_x + 10, term_win_y + 4, "Terminal", COL_WHITE, COL_TITLEBG);
+    gfx_fill_rect(term_win_x + term_win_w - 18, term_win_y + 5, 12, 12, COL_RED);
+    gfx_fill_rect(term_win_x + term_win_w - 34, term_win_y + 5, 12, 12, COL_YELLOW);
+    gfx_fill_rect(term_win_x + term_win_w - 50, term_win_y + 5, 12, 12, COL_GREEN);
 }
 
 // ---- shell ----
@@ -123,39 +189,44 @@ static char line[LINE_MAX];
 static int line_len = 0;
 
 static void prompt(void) {
-    term_fg = COLOR_GREEN;
-    term_puts("awizz");
-    term_fg = COLOR_WHITE;
+    term_fg = COL_GREEN;
+    term_puts("radiant");
+    term_fg = COL_ACCENT2;
+    term_puts("@os");
+    term_fg = COL_WHITE;
     term_puts("> ");
-    term_fg = COLOR_LIGHTGRAY;
+    term_fg = COL_TEXT;
 }
 
 static void print_help(void) {
-    term_puts("\nAvailable commands:\n");
+    term_puts("\n");
+    term_fg = COL_ACCENT2;
+    term_puts("  RadiantOS shell commands\n");
+    term_fg = COL_TEXT;
     term_puts("  help          - show this help\n");
-    term_puts("  clear / cls   - clear screen\n");
-    term_puts("  uptime        - show system uptime\n");
+    term_puts("  clear / cls   - clear terminal\n");
+    term_puts("  uptime        - system uptime\n");
     term_puts("  about         - system information\n");
     term_puts("  echo <text>   - print text\n");
-    term_puts("  color <n>     - set text color (0-15)\n");
-    term_puts("  box           - draw a demo graphical window\n");
-    term_puts("  lines         - draw colorful lines demo\n");
-    term_puts("  info          - framebuffer information\n");
+    term_puts("  color <0-15>  - set text color\n");
+    term_puts("  box           - demo graphical window\n");
+    term_puts("  lines         - colorful lines demo\n");
+    term_puts("  info          - framebuffer details\n");
     term_puts("  reboot / halt - stop the system\n\n");
 }
 
 static void cmd_about(void) {
     term_puts("\n");
-    term_fg = COLOR_YELLOW;
-    term_puts("  AwizzOS  v0.3\n");
-    term_fg = COLOR_LIGHTGRAY;
+    term_fg = COL_ACCENT2;
+    term_puts("  RadiantOS  v0.4\n");
+    term_fg = COL_TEXT;
     term_puts("  64-bit hobby operating system\n");
     term_puts("  Kernel: C++ + C, x86-64 Long Mode\n");
     term_puts("  Boot:   Multiboot2 + GRUB\n");
     term_puts("  Graphics: Linear framebuffer (RGB)\n");
     term_puts("  Features: IDT, PIC, PIT, PS/2 keyboard,\n");
-    term_puts("            interactive shell, pixel graphics\n");
-    term_puts("  License: MIT   Author: awizz (2026)\n\n");
+    term_puts("            graphical terminal, pixel UI\n");
+    term_puts("  License: MIT\n\n");
 }
 
 static void cmd_box(void) {
@@ -163,17 +234,21 @@ static void cmd_box(void) {
         term_puts("\nGraphics not available.\n");
         return;
     }
-    int wx = fb_width / 2 - 160;
-    int wy = fb_height / 2 - 80;
-    gfx_draw_window(wx, wy, 320, 160, "AwizzOS Window",
-                    COLOR_CYAN, 0x1A5A9E, 0x1A1A2A);
+    int wx = (int)fb_width / 2 - 180;
+    int wy = (int)fb_height / 2 - 90;
+    gfx_draw_window(wx, wy, 360, 180, "RadiantOS Window",
+                    COL_ACCENT, COL_TITLEBG, 0x1A1A2A);
     gfx_draw_string(wx + 24, wy + 40, "Hello from the graphical UI!",
-                    COLOR_GREEN, 0x1A1A2A);
-    gfx_draw_string(wx + 24, wy + 70, "Press any key to close...",
-                    COLOR_LIGHTGRAY, 0x1A1A2A);
+                    COL_GREEN, 0x1A1A2A);
+    gfx_draw_string(wx + 24, wy + 64, "This is a simple demo window.",
+                    COL_TEXT, 0x1A1A2A);
+    gfx_draw_string(wx + 24, wy + 100, "Press any key to close...",
+                    COL_DIM, 0x1A1A2A);
     while (!keyboard_getchar()) __asm__ volatile("hlt");
     // restore terminal area under the window
-    gfx_fill_rect(wx, wy, 320, 160, term_bg);
+    gfx_fill_rect(wx, wy, 360, 180, term_bg);
+    // redraw window chrome because we may have overwritten it
+    refresh_chrome(0);
     term_puts("\n");
 }
 
@@ -182,16 +257,15 @@ static void cmd_lines(void) {
         term_puts("\nGraphics not available.\n");
         return;
     }
-    int cx = fb_width / 2;
-    int cy = fb_height / 2;
+    int cx = (int)fb_width / 2;
+    int cy = (int)fb_height / 2;
     color_t colors[] = {
         COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW,
         COLOR_CYAN, COLOR_MAGENTA, COLOR_ORANGE, COLOR_WHITE
     };
     for (int i = 0; i < 64; i++) {
-        // approximate circle rays without trig
-        int dx = ((i % 16) - 8) * 20;
-        int dy = ((i / 16) - 2) * 40;
+        int dx = ((i % 16) - 8) * 22;
+        int dy = ((i / 16) - 2) * 42;
         gfx_line(cx, cy, cx + dx, cy + dy, colors[i % 8]);
     }
     term_puts("\nLines drawn. Type 'clear' to clean.\n");
@@ -204,14 +278,12 @@ static void cmd_info(void) {
         return;
     }
     term_puts("  Address : ");
-    // simple hex print
     uint64_t a = (uint64_t)(uintptr_t)fb_addr;
     char hex[] = "0123456789ABCDEF";
     term_puts("0x");
     for (int i = 60; i >= 0; i -= 4)
         term_putc(hex[(a >> i) & 0xF]);
     term_puts("\n  Size    : ");
-    // decimal width x height
     char buf[16];
     int n = fb_width, i = 15;
     buf[i] = 0;
@@ -251,7 +323,7 @@ static void execute(const char *cmd) {
         print_help();
     } else if (strcmp(cmd, "clear") == 0 || strcmp(cmd, "cls") == 0) {
         term_clear();
-        if (gfx_ready) draw_status_bar(0);
+        if (gfx_ready) refresh_chrome(0);
     } else if (strcmp(cmd, "uptime") == 0) {
         term_puts("\nUptime: ");
         uint64_t s = timer_ticks() / 100;
@@ -326,20 +398,19 @@ extern "C" void kernel_main(unsigned magic, unsigned long mbinfo) {
 
     if (have_gfx) {
         ui_init();
-        term_fg = COLOR_YELLOW;
-        term_puts("AwizzOS v0.3 – Graphical Mode\n");
-        term_fg = COLOR_LIGHTGRAY;
+        term_fg = COL_ACCENT2;
+        term_puts("RadiantOS v0.4 – Graphical Mode\n");
+        term_fg = COL_TEXT;
         term_puts("Framebuffer initialized successfully.\n");
     } else {
         // fallback pure text
         vga_clear();
-        vga_status("AwizzOS v0.3", "Text mode");
-        vga_puts("AwizzOS – graphics not available, using VGA text.\n");
+        vga_status("RadiantOS v0.4", "Text mode");
+        vga_puts("RadiantOS – graphics not available, using VGA text.\n");
     }
 
     term_puts("Kernel: C++ + C, x86-64 Long Mode\n");
     term_puts("Multiboot magic: ");
-    // print hex
     char hex[] = "0123456789ABCDEF";
     term_puts("0x");
     for (int i = 28; i >= 0; i -= 4)
@@ -353,7 +424,7 @@ extern "C" void kernel_main(unsigned magic, unsigned long mbinfo) {
     __asm__ volatile("sti");
 
     if (have_gfx)
-        draw_status_bar("Ready");
+        refresh_chrome("Ready");
 
     term_puts("Interrupts enabled.\n");
     term_puts("Type 'help' to see available commands.\n\n");

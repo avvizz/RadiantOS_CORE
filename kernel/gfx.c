@@ -1,4 +1,4 @@
-/* AwizzOS graphics: linear framebuffer + 8x16 font */
+/* RadiantOS graphics: linear framebuffer + 8x16 font */
 #include "gfx.h"
 
 uint8_t  *fb_addr   = 0;

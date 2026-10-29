@@ -1,4 +1,4 @@
-/* Multiboot2 info parser for AwizzOS */
+/* Multiboot2 info parser for RadiantOS */
 #include "multiboot.h"
 #include "gfx.h"
 
