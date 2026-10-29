@@ -1,28 +1,38 @@
-name: Build RadiantOS
+name: Build ISO
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:   # можно запускать вручную
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y nasm gcc g++ grub-pc-bin xorriso mtools
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm gcc g++ grub-pc-bin grub-common xorriso mtools
 
-    - name: Build ISO
-      run: make iso
+      - name: Build ISO
+        run: make iso
 
-    - name: Upload ISO
-      uses: actions/upload-artifact@v4
-      with:
-        name: radiant_os-iso
-        path: build/radiant_os.iso
+      - name: Upload ISO (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: radiantos-iso
+          path: build/radiantos.iso
+
+      - name: Publish to Releases (only for tags like v1.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/radiantos.iso
