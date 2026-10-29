@@ -37,7 +37,7 @@ iso: build/radiantos.bin
 	grub-mkrescue -o build/radiantos.iso build/iso
 
 run: iso
-	qemu-system-x86_64 -cdrom build/radiantos.iso -m 256
+	qemu-system-x86_64 -cdrom build/radiantos.iso -m 256 -usb -device usb-tablet
 
 clean:
 	rm -rf build
