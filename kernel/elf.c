@@ -7,6 +7,8 @@
 #include "pmm.h"
 #include "kstring.h"
 #include "syscall.h"
+#include "vmm.h"
+#include "user_hello_blob.h"
 #include "gdt.h"
 
 #define EI_NIDENT 16
@@ -160,6 +162,7 @@ int elf_info(const char *filename, elf_info_cb cb) {
     return 0;
 }
 
+
 int elf_run(const char *filename) {
     size_t fsz = 0;
     uint8_t *img = load_file(filename, &fsz);
@@ -175,91 +178,79 @@ int elf_run(const char *filename) {
     const struct elf64_phdr *ph =
         (const struct elf64_phdr *)(img + eh->e_phoff);
 
-    uint64_t min_va = ~0ULL, max_va = 0;
-    int load_count = 0;
-    for (uint16_t i = 0; i < eh->e_phnum; i++) {
-        if (ph[i].p_type != PT_LOAD || ph[i].p_memsz == 0) continue;
-        uint64_t start = ph[i].p_vaddr;
-        uint64_t end   = ph[i].p_vaddr + ph[i].p_memsz;
-        if (start < min_va) min_va = start;
-        if (end > max_va) max_va = end;
-        load_count++;
-    }
-    if (load_count == 0 || min_va >= max_va) {
+    addrspace_t as = vmm_create_as();
+    if (!as) {
         kfree(img);
-        return -2;
-    }
-
-    uint64_t span = max_va - min_va;
-    int use_direct = (eh->e_type == ET_EXEC &&
-                      min_va >= 0x100000 &&
-                      max_va <= 0x100000000ULL);
-
-    uint8_t *base_mem = 0;
-    uint64_t load_bias = 0;
-    size_t pages = (span + 0xFFF) / 0x1000;
-    if (pages == 0) pages = 1;
-
-    if (use_direct) {
-        for (uint16_t i = 0; i < eh->e_phnum; i++) {
-            if (ph[i].p_type != PT_LOAD || ph[i].p_memsz == 0) continue;
-            uint64_t a = ph[i].p_vaddr & ~0xFFFULL;
-            uint64_t e = (ph[i].p_vaddr + ph[i].p_memsz + 0xFFF) & ~0xFFFULL;
-            pmm_reserve(a, e - a);
-        }
-        load_bias = 0;
-    } else {
-        base_mem = (uint8_t *)pmm_alloc_pages(pages);
-        if (!base_mem) {
-            kfree(img);
-            return -1;
-        }
-        memset(base_mem, 0, pages * 0x1000);
-        load_bias = (uint64_t)base_mem - min_va;
-    }
-
-    for (uint16_t i = 0; i < eh->e_phnum; i++) {
-        if (ph[i].p_type != PT_LOAD) continue;
-        if (ph[i].p_offset + ph[i].p_filesz > fsz) {
-            if (base_mem) pmm_free_pages(base_mem, pages);
-            kfree(img);
-            return -1;
-        }
-        uint8_t *dst = (uint8_t *)(ph[i].p_vaddr + load_bias);
-        if (ph[i].p_filesz)
-            memcpy(dst, img + ph[i].p_offset, (size_t)ph[i].p_filesz);
-        if (ph[i].p_memsz > ph[i].p_filesz)
-            memset(dst + ph[i].p_filesz, 0,
-                   (size_t)(ph[i].p_memsz - ph[i].p_filesz));
-    }
-
-    uint64_t entry = eh->e_entry + load_bias;
-    kfree(img);
-
-    /* User stack: 16 KiB */
-    void *ustack = pmm_alloc_pages(4);
-    if (!ustack) {
-        if (base_mem) pmm_free_pages(base_mem, pages);
         return -1;
     }
-    uint64_t user_sp = (uint64_t)ustack + 4 * 4096;
 
-    /* Kernel stack for syscall (TSS.RSP0) */
+    /* Загружаем PT_LOAD в физические страницы и маппим в user AS */
+    for (uint16_t i = 0; i < eh->e_phnum; i++) {
+        if (ph[i].p_type != PT_LOAD || ph[i].p_memsz == 0) continue;
+        if (ph[i].p_offset + ph[i].p_filesz > fsz) {
+            vmm_destroy_as(as);
+            kfree(img);
+            return -1;
+        }
+
+        uint64_t va = ph[i].p_vaddr & ~0xFFFULL;
+        uint64_t end = (ph[i].p_vaddr + ph[i].p_memsz + 0xFFF) & ~0xFFFULL;
+        size_t pages = (size_t)((end - va) / 4096);
+        if (pages == 0) pages = 1;
+
+        void *phys = pmm_alloc_pages(pages);
+        if (!phys) {
+            vmm_destroy_as(as);
+            kfree(img);
+            return -1;
+        }
+        memset(phys, 0, pages * 4096);
+
+        uint64_t off = ph[i].p_vaddr - va;
+        if (ph[i].p_filesz)
+            memcpy((uint8_t *)phys + off, img + ph[i].p_offset, (size_t)ph[i].p_filesz);
+
+        uint64_t flags = PTE_WRITE | PTE_USER;
+        if (vmm_map_range(as, va, (uint64_t)phys, pages, flags) != 0) {
+            pmm_free_pages(phys, pages);
+            vmm_destroy_as(as);
+            kfree(img);
+            return -1;
+        }
+    }
+
+    /* User stack: 16 KiB at 0x7FFF0000 */
+    const uint64_t stack_top = 0x7FFF0000ULL;
+    const size_t stack_pages = 4;
+    void *ustack = pmm_alloc_pages(stack_pages);
+    if (!ustack) {
+        vmm_destroy_as(as);
+        kfree(img);
+        return -1;
+    }
+    memset(ustack, 0, stack_pages * 4096);
+    if (vmm_map_range(as, stack_top - stack_pages * 4096, (uint64_t)ustack,
+                      stack_pages, PTE_WRITE | PTE_USER) != 0) {
+        pmm_free_pages(ustack, stack_pages);
+        vmm_destroy_as(as);
+        kfree(img);
+        return -1;
+    }
+
     void *kstack = pmm_alloc_pages(4);
     if (kstack)
         tss_set_kernel_stack((uint64_t)kstack + 4 * 4096);
 
-    /* ring 3 → после SYS_EXIT возвращаемся сюда */
-    uint64_t code = enter_user_mode(entry, user_sp);
+    uint64_t entry = eh->e_entry;
+    kfree(img);
 
-    if (base_mem)
-        pmm_free_pages(base_mem, pages);
-    if (ustack)
-        pmm_free_pages(ustack, 4);
-    /* kstack оставляем — может ещё понадобиться; можно free позже */
+    vmm_switch(as);
+    uint64_t code = enter_user_mode(entry, stack_top);
+    vmm_switch(vmm_kernel_as());
 
     return (int)code;
 }
+
 
 /* Крошечный ELF64 DYN: один PT_LOAD, код = ret (0xC3).
    Можно запускать: run tiny.elf */
@@ -300,52 +291,24 @@ static const uint8_t tiny_elf[] = {
 /* Дополняем нулями до 0x1000 и пишем ret */
 
 
+
 void elf_install_demos(void) {
     uint8_t *buf = (uint8_t *)kmalloc(0x2000);
-    if (!buf) return;
-
-    /* Общий заголовок DYN, entry=0x1000, один PT_LOAD */
-    /* Патчим p_filesz/p_memsz на 0x2000 чтобы код+данные влезли */
-    memset(buf, 0, 0x2000);
-    memcpy(buf, tiny_elf, sizeof(tiny_elf));
-    /* phdr at offset 0x40: p_filesz @ +32, p_memsz @ +40 */
-    {
+    if (buf) {
+        memset(buf, 0, 0x2000);
+        memcpy(buf, tiny_elf, sizeof(tiny_elf));
         uint64_t sz = 0x2000;
-        memcpy(buf + 0x40 + 32, &sz, 8);  /* p_filesz */
-        memcpy(buf + 0x40 + 40, &sz, 8);  /* p_memsz */
-    }
-
-    /* ---- tiny.elf: exit(0) ---- */
-    {
+        memcpy(buf + 0x40 + 32, &sz, 8);
+        memcpy(buf + 0x40 + 40, &sz, 8);
         static const uint8_t code[] = {
-            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00, /* mov $0,%rax */
-            0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00, /* mov $0,%rdi */
-            0xCD, 0x80                                /* int $0x80 */
+            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00,
+            0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00,
+            0xCD, 0x80
         };
         memcpy(buf + 0x1000, code, sizeof(code));
         fs_write("tiny.elf", buf, 0x2000);
+        kfree(buf);
     }
 
-    /* ---- hello.elf: write + exit ---- */
-    memset(buf + 0x1000, 0, 0x1000);
-    {
-        static const char msg[] = "Hello from user mode!\n";
-        memcpy(buf + 0x1050, msg, sizeof(msg) - 1);
-
-        /* lea: next_rip=0x1015, msg=0x1050 → disp=0x3B */
-        static const uint8_t code[] = {
-            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, /* mov $1,%rax  WRITE */
-            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, /* mov $1,%rdi  fd */
-            0x48, 0x8D, 0x35, 0x3B, 0x00, 0x00, 0x00, /* lea 0x3B(%rip),%rsi */
-            0x48, 0xC7, 0xC2, 0x16, 0x00, 0x00, 0x00, /* mov $22,%rdx */
-            0xCD, 0x80,                               /* int $0x80 */
-            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00, /* mov $0,%rax  EXIT */
-            0x48, 0x31, 0xFF,                         /* xor %rdi,%rdi */
-            0xCD, 0x80                                /* int $0x80 */
-        };
-        memcpy(buf + 0x1000, code, sizeof(code));
-        fs_write("hello.elf", buf, 0x2000);
-    }
-
-    kfree(buf);
+    fs_write("hello.elf", user_hello_elf, user_hello_elf_len);
 }

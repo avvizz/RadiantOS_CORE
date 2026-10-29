@@ -9,6 +9,7 @@
 #include "fs.h"
 #include "elf.h"
 #include "gdt.h"
+#include "vmm.h"
 #include "syscall.h"
 #include "io.h"
 
@@ -105,6 +106,7 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
     keyboard_init();
 
     pmm_init(mbinfo);
+    vmm_init();
     serial_puts("PMM free pages: ");
     serial_putdec(pmm_free_pages_count());
     serial_puts("\n");
