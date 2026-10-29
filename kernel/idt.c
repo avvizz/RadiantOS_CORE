@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "interrupts.h"
 #include "vga.h"
+#include "fb.h"
 
 struct idt_entry {
     uint16_t off_low;
@@ -55,6 +56,10 @@ void irq_install_handler(int irq, irq_handler_t fn) {
 /* Вызывается из isr.S для всех прерываний */
 void isr_handler(struct regs *r) {
     if (r->int_no < 32) {
+        if (fb_ready()) {
+            fb_panic(exc_names[r->int_no], r->rip, r->err_code);
+            for (;;) __asm__ volatile("cli; hlt");
+        }
         vga_puts("\n*** EXCEPTION: ");
         vga_puts(exc_names[r->int_no]);
         vga_puts("\nRIP=");

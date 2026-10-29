@@ -1,38 +1,28 @@
-; RadiantOS boot: Multiboot2 -> Long Mode -> kernel_main
-; Requests framebuffer 1024x768x32
+; RadiantOS: Multiboot2 -> Long Mode -> kernel_main (C++)
+; GRUB передаёт управление в 32-битном режиме, поэтому сначала идёт 32-битный код.
 
 section .multiboot2
 align 8
 mb2_start:
     dd 0xE85250D6                                    ; magic Multiboot2
-    dd 0                                             ; i386
-    dd mb2_end - mb2_start
+    dd 0                                             ; архитектура i386
+    dd mb2_end - mb2_start                           ; длина заголовка
     dd 0x100000000 - (0xE85250D6 + 0 + (mb2_end - mb2_start))
-
-    ; Framebuffer request tag (type 5), optional
-    align 8
-    dw 5                                             ; type = framebuffer
-    dw 1                                             ; flags = optional
-    dd 20                                            ; size
-    dd 1024                                          ; width
-    dd 768                                           ; height
-    dd 32                                            ; depth (bpp)
-
-    ; End tag
-    align 8
-    dw 0
-    dw 0
+    ; тег: просим графический режим 1024x768x32 (необязательный)
+    dw 5, 1
+    dd 20
+    dd 1024, 768, 32
+    dd 0                                             ; выравнивание
+    ; конечный тег
+    dw 0, 0
     dd 8
 mb2_end:
 
 section .bss
 align 4096
-p4:  resb 4096
-p3:  resb 4096
-p2_0: resb 4096
-p2_1: resb 4096
-p2_2: resb 4096
-p2_3: resb 4096
+p4: resb 4096
+p3: resb 4096
+p2: resb 4096 * 4        ; 4 таблицы по 512 записей = 4 ГБ (нужно для framebuffer)
 stack_bottom: resb 16384
 stack_top:
 
@@ -43,10 +33,9 @@ extern kernel_main
 
 _start:
     mov esp, stack_top
-    mov edi, eax                 ; Multiboot2 magic
-    ; ebx = Multiboot2 info pointer
+    mov edi, eax         ; magic от загрузчика
+                         ; ebx = указатель на multiboot info
 
-    ; Check long mode support
     mov eax, 0x80000000
     cpuid
     cmp eax, 0x80000001
@@ -56,79 +45,42 @@ _start:
     test edx, 1 << 29
     jz .no_long_mode
 
-    ; Identity map first 4 GiB (2 MiB pages)
+    ; p4[0] -> p3
     mov eax, p3
     or eax, 0b11
     mov [p4], eax
-
-    mov eax, p2_0
+    ; p3[0..3] -> p2 (4 таблицы подряд)
+    mov eax, p2
     or eax, 0b11
-    mov [p3 + 0*8], eax
-    mov eax, p2_1
-    or eax, 0b11
-    mov [p3 + 1*8], eax
-    mov eax, p2_2
-    or eax, 0b11
-    mov [p3 + 2*8], eax
-    mov eax, p2_3
-    or eax, 0b11
-    mov [p3 + 3*8], eax
-
-    mov ecx, 0
-.map_p2_0:
-    mov eax, ecx
-    shl eax, 21
-    or eax, 0b10000011
-    mov [p2_0 + ecx*8], eax
+    mov [p3], eax
+    add eax, 0x1000
+    mov [p3 + 8], eax
+    add eax, 0x1000
+    mov [p3 + 16], eax
+    add eax, 0x1000
+    mov [p3 + 24], eax
+    ; 2048 страниц по 2 МБ: identity mapping первых 4 ГБ
+    xor ecx, ecx
+.map_p2:
+    mov eax, 0x200000
+    mul ecx
+    or eax, 0b10000011   ; present | writable | huge
+    mov [p2 + ecx * 8], eax
     inc ecx
-    cmp ecx, 512
-    jne .map_p2_0
+    cmp ecx, 2048
+    jne .map_p2
 
-    mov ecx, 0
-.map_p2_1:
-    mov eax, ecx
-    shl eax, 21
-    add eax, 0x40000000
-    or eax, 0b10000011
-    mov [p2_1 + ecx*8], eax
-    inc ecx
-    cmp ecx, 512
-    jne .map_p2_1
-
-    mov ecx, 0
-.map_p2_2:
-    mov eax, ecx
-    shl eax, 21
-    add eax, 0x80000000
-    or eax, 0b10000011
-    mov [p2_2 + ecx*8], eax
-    inc ecx
-    cmp ecx, 512
-    jne .map_p2_2
-
-    mov ecx, 0
-.map_p2_3:
-    mov eax, ecx
-    shl eax, 21
-    add eax, 0xC0000000
-    or eax, 0b10000011
-    mov [p2_3 + ecx*8], eax
-    inc ecx
-    cmp ecx, 512
-    jne .map_p2_3
-
-    ; Enable PAE, long mode, paging
     mov eax, p4
     mov cr3, eax
     mov eax, cr4
-    or eax, 1 << 5
+    or eax, 1 << 5       ; PAE
     mov cr4, eax
-    mov ecx, 0xC0000080
+    mov ecx, 0xC0000080  ; EFER
     rdmsr
-    or eax, 1 << 8
+    or eax, 1 << 8       ; LME
     wrmsr
     mov eax, cr0
-    or eax, 1 << 31
+    or eax, 1 << 31      ; paging
     mov cr0, eax
 
     lgdt [gdt64.pointer]

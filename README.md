@@ -1,78 +1,37 @@
 # RadiantOS
 
-64-bit (x86-64) hobby operating system written in C and C++.  
-Boots via GRUB (Multiboot2), enters Long Mode in `boot/boot.asm`.
+Учебная 64-битная (x86-64) операционная система на C и C++ с графическим интерфейсом.
+Загрузка через GRUB (Multiboot2), переход в Long Mode выполняется в `boot/boot.asm`.
 
-## Features
+## Возможности
+- 64-битное ядро, прерывания (IDT, PIC), таймер, клавиатура и мышь PS/2
+- Графика через framebuffer 1024x768x32, двойная буферизация
+- Рабочий стол, перетаскиваемые окна, панель задач, мини-терминал
+- Запасной текстовый режим, если графика недоступна
 
-- **Graphical mode** via Multiboot2 framebuffer (preferred 1024×768×32)
-- Linear framebuffer drawing (pixels, lines, rectangles, windows)
-- Built-in 8×16 bitmap font
-- Modern graphical terminal inside a window (top bar + taskbar)
-- Fallback to classic VGA text mode 80×25 if no framebuffer
-- Interrupts (IDT + PIC), PIT timer with live uptime, PS/2 keyboard
-- Identity-mapped first 4 GiB (so high framebuffers work)
-
-## Requirements (Debian/Ubuntu/WSL)
-
-```bash
+## Требования (Debian/Ubuntu/WSL)
+```
 sudo apt install nasm gcc g++ qemu-system-x86 grub-pc-bin xorriso mtools
 ```
 
-## Build & Run
-
-```bash
-make          # build/radiant_os.bin
-make run      # build ISO and launch in QEMU
-make iso      # only build/radiant_os.iso
+## Сборка и запуск
 ```
-
-## Shell commands
-
-| Command        | Description                          |
-|----------------|--------------------------------------|
-| help           | list commands                        |
-| clear / cls    | clear terminal                       |
-| uptime         | system uptime                        |
-| about          | system info                          |
-| echo \<text\>  | print text                           |
-| color \<0-15\> | set text color                       |
-| box            | demo graphical window                |
-| lines          | colorful lines demo                  |
-| info           | framebuffer details                  |
-| reboot / halt  | stop the system                      |
-
-## Project layout
-
+make          # собрать build/radiantos.bin
+make run      # собрать ISO и запустить в QEMU
+make iso      # только build/radiantos.iso
 ```
-boot/          Multiboot2 header + Long Mode (NASM)
-kernel/        kernel (C++) + drivers (C) + gfx
-grub/          GRUB config
-linker.ld
-```
+Готовый образ можно скачать на вкладке **Actions** (Artifacts) или в **Releases**.
 
-## Notes on graphics
+В QEMU кликни по окну, чтобы мышь «захватилась» (выход: Ctrl+Alt+G).
 
-GRUB is asked for a 1024×768×32 framebuffer (tag is optional).  
-If the host/QEMU provides it, RadiantOS switches to full graphical UI.  
-Otherwise it falls back to VGA text mode automatically.
+## Структура
+- `boot/` — Multiboot2-заголовок, включение 64-битного режима (NASM)
+- `kernel/` — ядро (C++), GUI (C++), драйверы (C)
+- `grub/` — конфиг загрузчика
+- `linker.ld` — скрипт компоновки
 
-## Running on Android (Termux)
+## Планы
+Менеджер памяти, процессы, системные вызовы, загрузчик ELF, файловая система, кириллица в шрифте.
 
-A real x86-64 kernel cannot run natively on ARM phones.  
-You can **emulate** it with QEMU inside Termux:
-
-```bash
-# Inside Termux
-pkg update && pkg install qemu-system-x86_64
-# Copy the built radiant_os.iso to the phone, then:
-qemu-system-x86_64 -cdrom radiant_os.iso -m 256M -vga std -display sdl
-# or without graphics (text only, faster):
-qemu-system-x86_64 -cdrom radiant_os.iso -m 128M -nographic
-```
-
-Performance will be limited on phones, but the graphical shell works.
-
-## License
-
+## Лицензия
 MIT

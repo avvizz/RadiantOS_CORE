@@ -28,7 +28,13 @@ uint64_t timer_ticks(void);
 
 void keyboard_init(void);                             /* PS/2 клавиатура */
 char keyboard_getchar(void);                          /* 0, если буфер пуст */
-char keyboard_getchar_blocking(void);                 /* ждать символ */
+int  keyboard_pending(void);
+void keyboard_set_echo(int on);                       /* печатать ввод в текстовом режиме */
+
+void mouse_init(void);                                /* PS/2 мышь */
+void mouse_set_bounds(int w, int h);
+void mouse_get(int *x, int *y, int *buttons);
+unsigned mouse_seq(void);                             /* растёт при каждом движении */
 
 #ifdef __cplusplus
 }

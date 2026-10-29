@@ -1,4 +1,4 @@
-/* PS/2 клавиатура (IRQ1), scancode set 1, раскладка US — RadiantOS */
+/* PS/2 клавиатура (IRQ1), scancode set 1, раскладка US */
 #include "interrupts.h"
 #include "io.h"
 #include "vga.h"
@@ -16,46 +16,35 @@ static const char map_shift[58] = {
     'Z','X','C','V','B','N','M','<','>','?', 0, '*', 0, ' '
 };
 
-#define BUF 256
+#define BUF 128
 static char buffer[BUF];
 static volatile unsigned head = 0, tail = 0;
 static int shift = 0;
-static int caps = 0;
+static int echo = 1;
 
 static void on_key(struct regs *r) {
     (void)r;
     uint8_t sc = inb(0x60);
-    if (sc & 0x80) {                              /* отпускание */
+    if (sc & 0x80) {                              /* клавиша отпущена */
         sc &= 0x7F;
         if (sc == 0x2A || sc == 0x36) shift = 0;
         return;
     }
-    if (sc == 0x2A || sc == 0x36) { shift = 1; return; } /* L/R Shift */
-    if (sc == 0x3A) { caps = !caps; return; }            /* Caps Lock */
+    if (sc == 0x2A || sc == 0x36) { shift = 1; return; }
     if (sc >= 58) return;
-
     char c = shift ? map_shift[sc] : map[sc];
     if (!c) return;
-
-    /* Caps влияет только на буквы */
-    if (caps && c >= 'a' && c <= 'z') c -= 32;
-    else if (caps && c >= 'A' && c <= 'Z') c += 32;
-
     buffer[head % BUF] = c;
     head++;
+    if (echo) vga_putc(c);                        /* эхо на экран (текстовый режим) */
 }
+
+int keyboard_pending(void) { return tail != head; }
+void keyboard_set_echo(int on) { echo = on; }
 
 char keyboard_getchar(void) {
     if (tail == head) return 0;
     return buffer[tail++ % BUF];
-}
-
-/* блокирующее чтение с эхо (для оболочки) */
-char keyboard_getchar_blocking(void) {
-    char c;
-    while (!(c = keyboard_getchar()))
-        __asm__ volatile("hlt");
-    return c;
 }
 
 void keyboard_init(void) {

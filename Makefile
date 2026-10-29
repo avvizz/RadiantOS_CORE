@@ -1,17 +1,19 @@
-# RadiantOS build system
+# Сборка 64-битной RadiantOS. Хватает обычного gcc на Linux x86-64.
+# С кросс-компилятором:  make CC=x86_64-elf-gcc CXX=x86_64-elf-g++
 CC   ?= gcc
 CXX  ?= g++
 NASM ?= nasm
 
 CFLAGS   = -m64 -ffreestanding -O2 -Wall -Wextra -fno-pie -fno-stack-protector \
-           -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -Ikernel
+           -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -fno-tree-loop-distribute-patterns
 CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti -fno-threadsafe-statics
 LDFLAGS  = -m64 -T linker.ld -nostdlib -no-pie -Wl,-z,max-page-size=0x1000 -Wl,-z,noexecstack
 
 OBJS = build/boot.o build/isr.o build/idt.o build/pic.o build/timer.o \
-       build/keyboard.o build/vga.o build/gfx.o build/multiboot.o build/kernel.o
+       build/keyboard.o build/mouse.o build/string.o build/fb.o \
+       build/vga.o build/gui.o build/kernel.o
 
-all: build/radiant_os.bin
+all: build/radiantos.bin
 
 build:
 	mkdir -p build
@@ -25,17 +27,17 @@ build/%.o: kernel/%.S | build
 build/%.o: kernel/%.cpp | build
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-build/radiant_os.bin: $(OBJS) linker.ld
+build/radiantos.bin: $(OBJS) linker.ld
 	$(CXX) $(LDFLAGS) $(OBJS) -o $@
 
-iso: build/radiant_os.bin
+iso: build/radiantos.bin
 	mkdir -p build/iso/boot/grub
-	cp build/radiant_os.bin build/iso/boot/
+	cp build/radiantos.bin build/iso/boot/
 	cp grub/grub.cfg build/iso/boot/grub/
-	grub-mkrescue -o build/radiant_os.iso build/iso
+	grub-mkrescue -o build/radiantos.iso build/iso
 
 run: iso
-	qemu-system-x86_64 -cdrom build/radiant_os.iso -m 256M -vga std -serial stdio
+	qemu-system-x86_64 -cdrom build/radiantos.iso -m 256
 
 clean:
 	rm -rf build

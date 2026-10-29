@@ -1,18 +1,4 @@
-# Build output
 build/
 *.o
 *.bin
 *.iso
-*.img
-
-# Editor / OS files
-.vscode/
-.idea/
-*.swp
-*~
-.DS_Store
-Thumbs.db
-
-# Temporary
-*.log
-*.tmp
