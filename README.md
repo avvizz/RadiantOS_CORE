@@ -1,4 +1,4 @@
-# AwizzOS v0.3
+# RadiantOS
 
 64-bit (x86-64) hobby operating system written in C and C++.
 Boots via GRUB (Multiboot2), enters Long Mode in `boot/boot.asm`.
