@@ -5,6 +5,7 @@
 #include "interrupts.h"
 #include "pmm.h"
 #include "kmalloc.h"
+#include "task.h"
 #include "io.h"
 
 class Console {
@@ -13,7 +14,6 @@ public:
     void print(const char *s) { vga_puts(s); }
     void printHex(unsigned v) { vga_puthex(v); }
     void printHex64(unsigned long long v) { vga_puthex64(v); }
-
     void printDec(unsigned long long v) {
         char buf[24];
         int i = 22;
@@ -57,11 +57,36 @@ static void serial_putdec(unsigned long long v) {
     }
     serial_puts(&buf[i + 1]);
 }
-static void serial_puthex64(unsigned long long v) {
-    const char *h = "0123456789ABCDEF";
-    serial_puts("0x");
-    for (int i = 60; i >= 0; i -= 4)
-        serial_putc(h[(v >> i) & 0xF]);
+
+/* ---------- демо-задачи ---------- */
+
+static void worker_a(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 5; i++) {
+        serial_puts("[task A] tick ");
+        serial_putdec((unsigned)i);
+        serial_puts("\n");
+        /* немного «поработать» и отдать CPU */
+        for (volatile int j = 0; j < 500000; j++)
+            task_maybe_yield();
+        task_yield();
+    }
+    serial_puts("[task A] done\n");
+    task_exit();
+}
+
+static void worker_b(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 5; i++) {
+        serial_puts("[task B] tick ");
+        serial_putdec((unsigned)i);
+        serial_puts("\n");
+        for (volatile int j = 0; j < 500000; j++)
+            task_maybe_yield();
+        task_yield();
+    }
+    serial_puts("[task B] done\n");
+    task_exit();
 }
 
 extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
@@ -74,38 +99,35 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
     keyboard_init();
 
     pmm_init(mbinfo);
-    serial_puts("PMM: free=");
+    serial_puts("PMM free pages: ");
     serial_putdec(pmm_free_pages_count());
-    serial_puts(" pages\n");
+    serial_puts("\n");
 
     kmalloc_init();
     serial_puts("kmalloc ready\n");
 
-    /* Быстрый тест кучи */
-    void *a = kmalloc(64);
-    void *b = kmalloc(256);
-    void *c = kmalloc(1024);
-    serial_puts("kmalloc(64)  -> ");
-    serial_puthex64((unsigned long long)a);
-    serial_puts("\nkmalloc(256) -> ");
-    serial_puthex64((unsigned long long)b);
-    serial_puts("\nkmalloc(1024)-> ");
-    serial_puthex64((unsigned long long)c);
+    task_init();
+    serial_puts("scheduler ready, tasks=");
+    serial_putdec(task_count());
     serial_puts("\n");
 
-    kfree(b);
-    void *d = kmalloc(128);
-    serial_puts("after free(b), kmalloc(128) -> ");
-    serial_puthex64((unsigned long long)d);
-    serial_puts("\nused=");
-    serial_putdec(kmalloc_used_bytes());
-    serial_puts(" free_heap=");
-    serial_putdec(kmalloc_free_bytes());
+    /* Создаём две демо-задачи */
+    task_create("worker-A", worker_a, 0);
+    task_create("worker-B", worker_b, 0);
+    serial_puts("created workers, tasks=");
+    serial_putdec(task_count());
     serial_puts("\n");
 
-    kfree(a);
-    kfree(c);
-    kfree(d);
+    /* Даём им поработать (мы — задача kernel) */
+    serial_puts("--- multitasking demo ---\n");
+    for (int k = 0; k < 20; k++) {
+        task_yield();
+        for (volatile int j = 0; j < 100000; j++)
+            task_maybe_yield();
+    }
+    serial_puts("--- demo finished, tasks left: ");
+    serial_putdec(task_count());
+    serial_puts(" ---\n");
 
     bool gfx = (magic == 0x36D76289) && fb_init(mbinfo);
     if (gfx) {
@@ -121,14 +143,13 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
     Console con;
     con.clear();
     vga_write_at(0, 0, "RadiantOS x86-64");
-    con.print("Hello from RadiantOS!\n");
-    con.print("PMM free pages: ");
-    con.printDec(pmm_free_pages_count());
-    con.print("\nkmalloc used: ");
-    con.printDec(kmalloc_used_bytes());
+    con.print("Multitasking demo done.\n");
+    con.print("Tasks: ");
+    con.printDec(task_count());
     con.print("\n");
-
     __asm__ volatile("sti");
-    con.print("Interrupts enabled.\n> ");
-    for (;;) __asm__ volatile("hlt");
+    for (;;) {
+        task_maybe_yield();
+        __asm__ volatile("hlt");
+    }
 }

@@ -5,6 +5,7 @@
 
 static volatile uint64_t ticks = 0;
 static uint32_t freq = 100;
+static volatile int need_resched = 0;
 
 static void show_uptime(uint64_t s) {
     char buf[24];
@@ -19,6 +20,10 @@ static void on_tick(struct regs *r) {
     (void)r;
     ticks++;
     if (ticks % freq == 0) show_uptime(ticks / freq);
+
+    /* Не вызываем schedule() прямо из IRQ — только ставим флаг.
+       Переключение произойдёт в task_yield / безопасных точках. */
+    need_resched = 1;
 }
 
 void timer_init(uint32_t hz) {
@@ -32,3 +37,9 @@ void timer_init(uint32_t hz) {
 }
 
 uint64_t timer_ticks(void) { return ticks; }
+
+int timer_need_resched(void) {
+    int v = need_resched;
+    need_resched = 0;
+    return v;
+}
