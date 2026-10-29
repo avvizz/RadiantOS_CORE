@@ -4,8 +4,8 @@
 #include "font.h"
 #include "kstring.h"
 
-#define MAXW 1024
-#define MAXH 768
+#define MAXW 1280
+#define MAXH 720
 
 static uint32_t back[MAXW * MAXH];   /* буфер, в который рисуем */
 static uint32_t bg[MAXW * MAXH];     /* сохранённый фон */
@@ -78,6 +78,26 @@ void fb_restore(void)  { memcpy(back, bg, (size_t)W * H * 4); }
 void fb_present(void) {
     for (int y = 0; y < H; y++)
         memcpy(screen + (uint64_t)y * pitch, &back[y * W], (size_t)W * 4);
+}
+
+void fb_present_rect(int x, int y, int w, int h) {
+    if (!ready || w <= 0 || h <= 0) return;
+    int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
+    int x1 = x + w > W ? W : x + w, y1 = y + h > H ? H : y + h;
+    for (int j = y0; j < y1; j++)
+        memcpy(screen + (uint64_t)j * pitch + (size_t)x0 * 4,
+               &back[j * W + x0], (size_t)(x1 - x0) * 4);
+}
+
+/* Пиксель прямо в видеопамять (для быстрого курсора) */
+void fb_screen_pixel(int x, int y, uint32_t c) {
+    if (!ready || x < 0 || y < 0 || x >= W || y >= H) return;
+    *(uint32_t *)(screen + (uint64_t)y * pitch + (size_t)x * 4) = c;
+}
+
+uint32_t fb_back_pixel(int x, int y) {
+    if (!ready || x < 0 || y < 0 || x >= W || y >= H) return 0;
+    return back[y * W + x];
 }
 
 static void hex64(char *d, uint64_t v) {

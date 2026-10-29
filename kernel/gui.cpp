@@ -52,6 +52,8 @@ int     next_id = 1;
 
 int dragging = -1, dragDX = 0, dragDY = 0;
 bool prevLeft = false;
+bool start_menu = false;
+int cur_ox = -1000, cur_oy = -1000; /* last cursor pos for fast path */
 
 /* ---------- string helpers ---------- */
 char *put_s(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
@@ -339,6 +341,7 @@ int active_window() {
     return -1;
 }
 
+
 /* ---------- drawing ---------- */
 const char *const CUR[] = {
     "X","XX","X.X","X..X","X...X","X....X","X.....X","X......X",
@@ -346,27 +349,43 @@ const char *const CUR[] = {
     "XX  X..X","X    X..X","     X..X","      X..X","      X..X","       XX",
     nullptr
 };
+const int CUR_W = 12, CUR_H = 20;
 
-void draw_cursor(int mx, int my) {
+void draw_cursor_on_screen(int mx, int my) {
+    /* стереть старый курсор из back → screen */
+    if (cur_ox > -900) {
+        fb_present_rect(cur_ox - 1, cur_oy - 1, CUR_W + 2, CUR_H + 2);
+    }
+    /* нарисовать новый прямо на экране */
     for (int r = 0; CUR[r]; r++)
-        for (int c = 0; CUR[r][c]; c++) {
-            char ch = CUR[r][c];
-            if (ch == 'X') fb_pixel(mx + c, my + r, 0x000000);
-            else if (ch == '.') fb_pixel(mx + c, my + r, 0xFFFFFF);
+        for (int col = 0; CUR[r][col]; col++) {
+            char ch = CUR[r][col];
+            if (ch == 'X') fb_screen_pixel(mx + col, my + r, 0x000000);
+            else if (ch == '.') fb_screen_pixel(mx + col, my + r, 0xFFFFFF);
         }
+    cur_ox = mx; cur_oy = my;
 }
 
 void draw_desktop() {
     int W = fb_width(), H = fb_height();
-    const int r1 = 0x0F, g1 = 0x20, b1 = 0x27, r2 = 0x2C, g2 = 0x53, b2 = 0x64;
+    /* более насыщенный градиент */
     for (int y = 0; y < H; y++) {
-        int t = y * 255 / H;
-        uint32_t r = (uint32_t)((r1 * (255 - t) + r2 * t) / 255);
-        uint32_t g = (uint32_t)((g1 * (255 - t) + g2 * t) / 255);
-        uint32_t b = (uint32_t)((b1 * (255 - t) + b2 * t) / 255);
+        int t = y * 255 / (H ? H : 1);
+        uint32_t r = (uint32_t)((12 * (255 - t) + 40 * t) / 255);
+        uint32_t g = (uint32_t)((28 * (255 - t) + 70 * t) / 255);
+        uint32_t b = (uint32_t)((48 * (255 - t) + 110 * t) / 255);
         fb_rect(0, y, W, 1, (r << 16) | (g << 8) | b);
     }
-    fb_text(W - 310, H - TASKBAR - 60, "RadiantOS", 0x3F6E88, 4);
+    /* декоративные «иконки» на рабочем столе */
+    fb_rect(24, 24, 64, 64, 0x1A2332);
+    fb_rect(26, 26, 60, 40, 0x2F6FDE);
+    fb_text(30, 72, "Term", 0xC0D0E0, 1);
+
+    fb_rect(24, 110, 64, 64, 0x1A2332);
+    fb_rect(26, 112, 60, 40, 0x238636);
+    fb_text(28, 158, "About", 0xC0D0E0, 1);
+
+    fb_text(W - 280, H - TASKBAR - 50, "RadiantOS", 0x4A7A9A, 3);
     fb_snapshot();
 }
 
@@ -375,12 +394,16 @@ void draw_window(int i, bool active) {
     if (!w || !w->visible) return;
 
     bool dark = (w->type == WT_TERM || w->type == WT_NOTE);
-    fb_rect(w->x + 5, w->y + 5, w->w, w->h, 0x0B1016);
-    fb_rect(w->x - 1, w->y - 1, w->w + 2, w->h + 2, 0x10151C);
+    /* тень */
+    fb_rect(w->x + 6, w->y + 6, w->w, w->h, 0x080C12);
+    /* рамка */
+    fb_rect(w->x - 1, w->y - 1, w->w + 2, w->h + 2, active ? 0x3D7AE8 : 0x2A3344);
+    /* заголовок */
     fb_rect(w->x, w->y, w->w, TB, active ? C_ACTIVE : C_INACTIVE);
-    fb_text(w->x + 8, w->y + 6, w->title, C_WHITE, 2);
+    fb_text(w->x + 10, w->y + 6, w->title, C_WHITE, 2);
+    /* close */
     fb_rect(w->x + w->w - TB + 4, w->y + 4, TB - 8, TB - 8, C_CLOSE);
-    fb_text(w->x + w->w - TB + 6, w->y + 6, "x", C_WHITE, 2);
+    fb_text(w->x + w->w - TB + 8, w->y + 6, "x", C_WHITE, 2);
     fb_rect(w->x, w->y + TB, w->w, w->h - TB, dark ? 0x0C1117 : C_BODY);
 
     int bx = w->x + 8, by = w->y + TB + 8;
@@ -393,12 +416,12 @@ void draw_window(int i, bool active) {
         *p++ = '_'; *p = 0;
         fb_text(bx, by + TROWS * 18 + 4, buf, 0xFFFFFF, 2);
     } else if (w->type == WT_ABOUT) {
-        fb_text(bx, by,       "RadiantOS 0.3",             0x2F6FDE, 3);
+        fb_text(bx, by,       "RadiantOS 0.4",             0x2F6FDE, 3);
         fb_text(bx, by + 36,  "64-bit kernel: C and C++", C_TEXT, 2);
-        fb_text(bx, by + 60,  "Dynamic windows (kmalloc)",C_TEXT, 2);
-        fb_text(bx, by + 84,  "Tasks + physical memory",  C_TEXT, 2);
-        fb_text(bx, by + 116, "Drag by title, close with x",C_TEXT, 2);
-        fb_text(bx, by + 140, "Terminal: help / win / mem", C_TEXT, 2);
+        fb_text(bx, by + 60,  "1280x720 graphics",        C_TEXT, 2);
+        fb_text(bx, by + 84,  "User mode + syscalls",     C_TEXT, 2);
+        fb_text(bx, by + 108, "Dynamic windows + RAM FS", C_TEXT, 2);
+        fb_text(bx, by + 140, "Try: run hello.elf",       C_TEXT, 2);
     } else if (w->type == WT_SYS) {
         int mx, my, mb;
         mouse_get(&mx, &my, &mb);
@@ -416,34 +439,55 @@ void draw_window(int i, bool active) {
         p = put_s(buf, "Heap used: "); p = put_n(p, kmalloc_used_bytes()); p = put_s(p, " B");
         *p = 0; fb_text(bx, by + 120, buf, C_TEXT, 2);
     } else if (w->type == WT_NOTE) {
-        fb_text(bx, by,      "Notepad (demo)", 0x7CFC9A, 2);
+        fb_text(bx, by,      "Notepad", 0x7CFC9A, 2);
         fb_text(bx, by + 28, "Created with kmalloc.", C_TEXT, 2);
-        fb_text(bx, by + 52, "Close with X to free memory.", C_TEXT, 2);
-        fb_text(bx, by + 76, "Terminal: win  - new note", C_TEXT, 2);
-        char *p = put_s(buf, "Window id: ");
+        fb_text(bx, by + 52, "Close with X to free.", C_TEXT, 2);
+        char *p = put_s(buf, "id: ");
         p = put_n(p, (uint64_t)w->id);
         *p = 0;
-        fb_text(bx, by + 110, buf, 0x8090A0, 2);
+        fb_text(bx, by + 90, buf, 0x8090A0, 2);
     }
+}
+
+void draw_start_menu() {
+    if (!start_menu) return;
+    int H = fb_height();
+    int my = H - TASKBAR - 200;
+    fb_rect(4, my, 200, 196, 0x1B2433);
+    fb_rect(4, my, 200, 196, 0x1B2433);
+    fb_rect(4, my, 200, 2, C_ACTIVE);
+    fb_text(16, my + 12, "RadiantOS Menu", C_WHITE, 2);
+
+    fb_rect(12, my + 40, 184, 28, C_BTN);
+    fb_text(24, my + 46, "Terminal", C_WHITE, 2);
+
+    fb_rect(12, my + 74, 184, 28, C_BTN);
+    fb_text(24, my + 80, "About", C_WHITE, 2);
+
+    fb_rect(12, my + 108, 184, 28, C_BTN);
+    fb_text(24, my + 114, "System", C_WHITE, 2);
+
+    fb_rect(12, my + 142, 184, 28, C_BTN);
+    fb_text(24, my + 148, "New Note", C_WHITE, 2);
 }
 
 void draw_taskbar() {
     int W = fb_width(), H = fb_height();
     int ty = H - TASKBAR;
-    fb_rect(0, ty, W, TASKBAR, C_TASK);
-    fb_rect(0, ty, W, 1, 0x2E3A4A);
+    fb_rect(0, ty, W, TASKBAR, 0x0F1520);
+    fb_rect(0, ty, W, 2, C_ACTIVE);
 
-    /* Start / logo — показывает все окна */
-    fb_rect(4, ty + 4, 100, 28, C_ACTIVE);
-    fb_text(14, ty + 10, "Start", C_WHITE, 2);
+    /* Start */
+    fb_rect(4, ty + 4, 100, 28, start_menu ? C_BTN_ON : C_ACTIVE);
+    fb_text(20, ty + 10, "Start", C_WHITE, 2);
 
-    /* Кнопка +New */
+    /* +Win */
     fb_rect(110, ty + 4, 70, 28, C_BTN);
     fb_text(122, ty + 10, "+Win", C_WHITE, 2);
 
     int act = active_window();
     int bx = 190;
-    for (int i = 0; i < nwin && bx + 120 < W - 80; i++) {
+    for (int i = 0; i < nwin && bx + 120 < W - 140; i++) {
         if (!wins[i]) continue;
         fb_rect(bx, ty + 4, 110, 28, (wins[i]->visible && i == act) ? C_BTN_ON : C_BTN);
         fb_text(bx + 6, ty + 10, wins[i]->label,
@@ -451,14 +495,20 @@ void draw_taskbar() {
         bx += 116;
     }
 
+    /* часы HH:MM:SS из uptime */
+    uint64_t sec = timer_ticks() / 100;
+    uint64_t hh = (sec / 3600) % 24, mm = (sec / 60) % 60, ss = sec % 60;
     char buf[32];
-    char *p = put_s(buf, "up ");
-    p = put_n(p, timer_ticks() / 100); p = put_s(p, "s");
-    *p = 0;
-    fb_text(W - fb_text_width(buf, 2) - 10, ty + 10, buf, 0xC0D0E0, 2);
+    char *p = buf;
+    *p++ = (char)('0' + hh / 10); *p++ = (char)('0' + hh % 10); *p++ = ':';
+    *p++ = (char)('0' + mm / 10); *p++ = (char)('0' + mm % 10); *p++ = ':';
+    *p++ = (char)('0' + ss / 10); *p++ = (char)('0' + ss % 10); *p = 0;
+    fb_rect(W - 120, ty + 4, 112, 28, 0x1A2332);
+    fb_text(W - 100, ty + 10, buf, 0xE0E8F0, 2);
 }
 
-void draw_frame(int mx, int my) {
+/* Полная перерисовка UI (без курсора) */
+void draw_frame_content() {
     fb_restore();
     int act = active_window();
     for (int k = 0; k < nwin; k++) {
@@ -466,37 +516,60 @@ void draw_frame(int mx, int my) {
         if (i >= 0 && i < nwin && wins[i] && wins[i]->visible)
             draw_window(i, i == act);
     }
+    draw_start_menu();
     draw_taskbar();
-    draw_cursor(mx, my);
     fb_present();
+    cur_ox = -1000; /* курсор нужно нарисовать заново */
 }
 
-/* ---------- mouse ---------- */
 void handle_mouse(int mx, int my, bool left) {
     int W = fb_width(), H = fb_height();
     bool pressed = left && !prevLeft;
 
     if (pressed) {
-        if (my >= H - TASKBAR) {
-            /* Start — показать все */
-            if (mx >= 4 && mx < 104) {
-                for (int i = 0; i < nwin; i++)
-                    if (wins[i]) wins[i]->visible = true;
+        /* клик по меню Пуск */
+        if (start_menu) {
+            int my0 = H - TASKBAR - 200;
+            if (mx >= 12 && mx < 196 && my >= my0 + 40 && my < my0 + 170) {
+                int item = (my - (my0 + 40)) / 34;
+                if (item == 0) {
+                    int i = find_by_type(WT_TERM);
+                    if (i >= 0) { wins[i]->visible = true; raise_window(i); }
+                } else if (item == 1) {
+                    int i = find_by_type(WT_ABOUT);
+                    if (i >= 0) { wins[i]->visible = true; raise_window(i); }
+                    else window_create(WT_ABOUT, "About RadiantOS", "About", 400, 120, 440, 250, true);
+                } else if (item == 2) {
+                    int i = find_by_type(WT_SYS);
+                    if (i >= 0) { wins[i]->visible = true; raise_window(i); }
+                } else if (item == 3) {
+                    char title[32];
+                    char *p = put_s(title, "Note #");
+                    p = put_n(p, (uint64_t)next_id); *p = 0;
+                    window_create(WT_NOTE, title, "Note", 60 + nwin * 20, 40 + nwin * 20, 360, 220, true);
+                }
+                start_menu = false;
+                prevLeft = left;
+                return;
             }
-            /* +Win — новое окно */
-            else if (mx >= 110 && mx < 180) {
+            if (!(mx >= 4 && mx < 104 && my >= H - TASKBAR))
+                start_menu = false;
+        }
+
+        if (my >= H - TASKBAR) {
+            if (mx >= 4 && mx < 104) {
+                start_menu = !start_menu;
+            } else if (mx >= 110 && mx < 180) {
                 char title[32];
                 char *p = put_s(title, "Note #");
-                p = put_n(p, (uint64_t)next_id);
-                *p = 0;
+                p = put_n(p, (uint64_t)next_id); *p = 0;
                 window_create(WT_NOTE, title, "Note",
                               50 + (nwin % 6) * 28, 40 + (nwin % 6) * 28,
                               360, 220, true);
-            }
-            /* кнопки окон на панели */
-            else {
+                start_menu = false;
+            } else {
                 int bx = 190;
-                for (int i = 0; i < nwin && bx + 120 < W - 80; i++) {
+                for (int i = 0; i < nwin && bx + 120 < W - 140; i++) {
                     if (!wins[i]) { bx += 116; continue; }
                     if (mx >= bx && mx < bx + 110) {
                         if (wins[i]->visible && i == active_window())
@@ -509,25 +582,35 @@ void handle_mouse(int mx, int my, bool left) {
                     }
                     bx += 116;
                 }
+                start_menu = false;
             }
         } else {
-            for (int k = nwin - 1; k >= 0; k--) {
-                int i = order[k];
-                if (i < 0 || i >= nwin || !wins[i] || !wins[i]->visible) continue;
-                if (!wins[i]->inside(mx, my)) continue;
-                raise_window(i);
-                if (wins[i]->inClose(mx, my)) {
-                    if (wins[i]->closable)
-                        window_destroy(i);
-                    else
-                        wins[i]->visible = false;
-                } else if (wins[i]->inTitle(mx, my)) {
-                    dragging = i;
-                    dragDX = mx - wins[i]->x;
-                    dragDY = my - wins[i]->y;
+            /* иконки рабочего стола */
+            if (mx >= 24 && mx < 88 && my >= 24 && my < 88) {
+                int i = find_by_type(WT_TERM);
+                if (i >= 0) { wins[i]->visible = true; raise_window(i); }
+            } else if (mx >= 24 && mx < 88 && my >= 110 && my < 174) {
+                int i = find_by_type(WT_ABOUT);
+                if (i >= 0) { wins[i]->visible = true; raise_window(i); }
+                else window_create(WT_ABOUT, "About RadiantOS", "About", 400, 120, 440, 250, true);
+            } else {
+                for (int k = nwin - 1; k >= 0; k--) {
+                    int i = order[k];
+                    if (i < 0 || i >= nwin || !wins[i] || !wins[i]->visible) continue;
+                    if (!wins[i]->inside(mx, my)) continue;
+                    raise_window(i);
+                    if (wins[i]->inClose(mx, my)) {
+                        if (wins[i]->closable) window_destroy(i);
+                        else wins[i]->visible = false;
+                    } else if (wins[i]->inTitle(mx, my)) {
+                        dragging = i;
+                        dragDX = mx - wins[i]->x;
+                        dragDY = my - wins[i]->y;
+                    }
+                    break;
                 }
-                break;
             }
+            start_menu = false;
         }
     }
     if (!left) dragging = -1;
@@ -569,29 +652,49 @@ extern "C" void gui_run(void) {
     t_print("Welcome to RadiantOS!");
     t_print("Type help  |  win  |  mem");
     draw_desktop();
+    draw_frame_content();
 
     unsigned lastSeq = mouse_seq() - 1;
     uint64_t lastSec = ~0ULL;
     bool dirty = true;
+    int last_mx = -1, last_my = -1;
 
     for (;;) {
         int mx, my, mb;
         mouse_get(&mx, &my, &mb);
         unsigned seq = mouse_seq();
-        if (seq != lastSeq) { lastSeq = seq; handle_mouse(mx, my, mb & 1); dirty = true; }
+        bool mouse_moved = (seq != lastSeq);
+        if (mouse_moved) {
+            lastSeq = seq;
+            bool was_drag = dragging >= 0;
+            handle_mouse(mx, my, mb & 1);
+            if (was_drag || dragging >= 0 || (mb & 1))
+                dirty = true; /* клик / перетаскивание — полная перерисовка */
+            else {
+                /* только курсор — быстро */
+                draw_cursor_on_screen(mx, my);
+                last_mx = mx; last_my = my;
+            }
+        }
 
-        char c;
-        while ((c = keyboard_getchar()) != 0) {
+        char ch;
+        while ((ch = keyboard_getchar()) != 0) {
             int ti = find_by_type(WT_TERM);
             if (ti >= 0 && wins[ti] && wins[ti]->visible)
-                t_key(c);
+                t_key(ch);
             dirty = true;
         }
 
         uint64_t sec = timer_ticks() / 100;
         if (sec != lastSec) { lastSec = sec; dirty = true; }
 
-        if (dirty) { draw_frame(mx, my); dirty = false; continue; }
+        if (dirty) {
+            draw_frame_content();
+            draw_cursor_on_screen(mx, my);
+            dirty = false;
+            last_mx = mx; last_my = my;
+            continue;
+        }
 
         __asm__ volatile("cli");
         if (mouse_seq() == lastSeq && !keyboard_pending() && timer_ticks() / 100 == lastSec)
