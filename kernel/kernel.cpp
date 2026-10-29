@@ -4,6 +4,7 @@
 #include "gui.h"
 #include "interrupts.h"
 #include "pmm.h"
+#include "kmalloc.h"
 #include "io.h"
 
 class Console {
@@ -26,7 +27,6 @@ public:
     }
 };
 
-/* Простой вывод в COM1 (QEMU: -serial stdio) */
 static void serial_init(void) {
     outb(0x3F8 + 1, 0x00);
     outb(0x3F8 + 3, 0x80);
@@ -57,6 +57,12 @@ static void serial_putdec(unsigned long long v) {
     }
     serial_puts(&buf[i + 1]);
 }
+static void serial_puthex64(unsigned long long v) {
+    const char *h = "0123456789ABCDEF";
+    serial_puts("0x");
+    for (int i = 60; i >= 0; i -= 4)
+        serial_putc(h[(v >> i) & 0xF]);
+}
 
 extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
     serial_init();
@@ -67,16 +73,39 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
     timer_init(100);
     keyboard_init();
 
-    /* Физический аллокатор страниц */
     pmm_init(mbinfo);
-
-    serial_puts("PMM: total=");
-    serial_putdec(pmm_total_pages());
-    serial_puts(" used=");
-    serial_putdec(pmm_used_pages());
-    serial_puts(" free=");
+    serial_puts("PMM: free=");
     serial_putdec(pmm_free_pages_count());
     serial_puts(" pages\n");
+
+    kmalloc_init();
+    serial_puts("kmalloc ready\n");
+
+    /* Быстрый тест кучи */
+    void *a = kmalloc(64);
+    void *b = kmalloc(256);
+    void *c = kmalloc(1024);
+    serial_puts("kmalloc(64)  -> ");
+    serial_puthex64((unsigned long long)a);
+    serial_puts("\nkmalloc(256) -> ");
+    serial_puthex64((unsigned long long)b);
+    serial_puts("\nkmalloc(1024)-> ");
+    serial_puthex64((unsigned long long)c);
+    serial_puts("\n");
+
+    kfree(b);
+    void *d = kmalloc(128);
+    serial_puts("after free(b), kmalloc(128) -> ");
+    serial_puthex64((unsigned long long)d);
+    serial_puts("\nused=");
+    serial_putdec(kmalloc_used_bytes());
+    serial_puts(" free_heap=");
+    serial_putdec(kmalloc_free_bytes());
+    serial_puts("\n");
+
+    kfree(a);
+    kfree(c);
+    kfree(d);
 
     bool gfx = (magic == 0x36D76289) && fb_init(mbinfo);
     if (gfx) {
@@ -89,33 +118,17 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
         gui_run();
     }
 
-    /* Запасной текстовый режим */
     Console con;
     con.clear();
     vga_write_at(0, 0, "RadiantOS x86-64");
     con.print("Hello from RadiantOS!\n");
-    con.print("Kernel: C++ + C, x86-64 (Long Mode)\n");
-    con.print("Multiboot magic: ");
-    con.printHex(magic);
-    con.print(magic == 0x36D76289 ? "  [OK]\n" : "  [ERROR]\n");
-
-    con.print("\n--- Physical Memory Manager ---\n");
-    con.print("Total pages:  ");
-    con.printDec(pmm_total_pages());
-    con.print("  (");
-    con.printDec(pmm_total_pages() * 4);
-    con.print(" KiB)\n");
-    con.print("Used pages:   ");
-    con.printDec(pmm_used_pages());
-    con.print("\n");
-    con.print("Free pages:   ");
+    con.print("PMM free pages: ");
     con.printDec(pmm_free_pages_count());
-    con.print("  (");
-    con.printDec(pmm_free_pages_count() * 4);
-    con.print(" KiB)\n");
+    con.print("\nkmalloc used: ");
+    con.printDec(kmalloc_used_bytes());
+    con.print("\n");
 
     __asm__ volatile("sti");
-    con.print("\nInterrupts enabled. Type something:\n> ");
-    serial_puts("Text mode ready.\n");
+    con.print("Interrupts enabled.\n> ");
     for (;;) __asm__ volatile("hlt");
 }
