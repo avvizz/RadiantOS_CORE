@@ -24,5 +24,5 @@ jobs:
     - name: Upload ISO
       uses: actions/upload-artifact@v4
       with:
-        name: awizz_os-iso
-        path: build/awizz_os.iso
+        name: radiant_os-iso
+        path: build/radiant_os.iso
