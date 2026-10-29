@@ -34,7 +34,7 @@ extern kernel_main
 _start:
     mov esp, stack_top
     mov edi, eax         ; magic от загрузчика
-                         ; ebx = указатель на multiboot info
+    mov esi, ebx         ; указатель на multiboot info (cpuid ниже затирает ebx!)
 
     mov eax, 0x80000000
     cpuid
@@ -98,8 +98,8 @@ long_mode:
     mov es, ax
     mov fs, ax
     mov gs, ax
-    mov edi, edi
-    mov esi, ebx
+    mov edi, edi         ; обнуляем верхние 32 бита
+    mov esi, esi
     call kernel_main
 .hang:
     cli
