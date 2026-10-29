@@ -299,52 +299,52 @@ static const uint8_t tiny_elf[] = {
 
 /* Дополняем нулями до 0x1000 и пишем ret */
 
+
 void elf_install_demos(void) {
-    uint8_t *buf = (uint8_t *)kmalloc(0x1100);
+    uint8_t *buf = (uint8_t *)kmalloc(0x2000);
     if (!buf) return;
 
-    /* ---- tiny.elf: exit(0) ---- */
-    memset(buf, 0, 0x1100);
+    /* Общий заголовок DYN, entry=0x1000, один PT_LOAD */
+    /* Патчим p_filesz/p_memsz на 0x2000 чтобы код+данные влезли */
+    memset(buf, 0, 0x2000);
     memcpy(buf, tiny_elf, sizeof(tiny_elf));
+    /* phdr at offset 0x40: p_filesz @ +32, p_memsz @ +40 */
+    {
+        uint64_t sz = 0x2000;
+        memcpy(buf + 0x40 + 32, &sz, 8);  /* p_filesz */
+        memcpy(buf + 0x40 + 40, &sz, 8);  /* p_memsz */
+    }
+
+    /* ---- tiny.elf: exit(0) ---- */
     {
         static const uint8_t code[] = {
-            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00,
-            0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00,
-            0xCD, 0x80
+            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00, /* mov $0,%rax */
+            0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00, /* mov $0,%rdi */
+            0xCD, 0x80                                /* int $0x80 */
         };
         memcpy(buf + 0x1000, code, sizeof(code));
-        fs_write("tiny.elf", buf, 0x1000 + sizeof(code));
+        fs_write("tiny.elf", buf, 0x2000);
     }
 
     /* ---- hello.elf: write + exit ---- */
-    memset(buf, 0, 0x1100);
-    memcpy(buf, tiny_elf, sizeof(tiny_elf));
+    memset(buf + 0x1000, 0, 0x1000);
     {
         static const char msg[] = "Hello from user mode!\n";
         memcpy(buf + 0x1050, msg, sizeof(msg) - 1);
 
-        /* layout at VA 0x1000:
-           0x00: mov $1,%rax
-           0x07: mov $1,%rdi
-           0x0E: lea disp(%rip),%rsi  ; next_rip=0x1015, msg=0x1050 → disp=0x3B
-           0x15: mov $22,%rdx
-           0x1C: int 0x80
-           0x1E: mov $0,%rax
-           0x25: xor %rdi,%rdi
-           0x28: int 0x80
-        */
+        /* lea: next_rip=0x1015, msg=0x1050 → disp=0x3B */
         static const uint8_t code[] = {
-            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
-            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00,
-            0x48, 0x8D, 0x35, 0x3B, 0x00, 0x00, 0x00,
-            0x48, 0xC7, 0xC2, 0x16, 0x00, 0x00, 0x00,
-            0xCD, 0x80,
-            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00,
-            0x48, 0x31, 0xFF,
-            0xCD, 0x80
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, /* mov $1,%rax  WRITE */
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, /* mov $1,%rdi  fd */
+            0x48, 0x8D, 0x35, 0x3B, 0x00, 0x00, 0x00, /* lea 0x3B(%rip),%rsi */
+            0x48, 0xC7, 0xC2, 0x16, 0x00, 0x00, 0x00, /* mov $22,%rdx */
+            0xCD, 0x80,                               /* int $0x80 */
+            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00, /* mov $0,%rax  EXIT */
+            0x48, 0x31, 0xFF,                         /* xor %rdi,%rdi */
+            0xCD, 0x80                                /* int $0x80 */
         };
         memcpy(buf + 0x1000, code, sizeof(code));
-        fs_write("hello.elf", buf, 0x1050 + sizeof(msg) - 1);
+        fs_write("hello.elf", buf, 0x2000);
     }
 
     kfree(buf);
