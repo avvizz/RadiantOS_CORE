@@ -47,11 +47,11 @@ _start:
 
     ; p4[0] -> p3
     mov eax, p3
-    or eax, 0b11
+    or eax, 0b111          ; present | write | user
     mov [p4], eax
     ; p3[0..3] -> p2 (4 таблицы подряд)
     mov eax, p2
-    or eax, 0b11
+    or eax, 0b111          ; present | write | user
     mov [p3], eax
     add eax, 0x1000
     mov [p3 + 8], eax
@@ -64,7 +64,7 @@ _start:
 .map_p2:
     mov eax, 0x200000
     mul ecx
-    or eax, 0b10000011   ; present | writable | huge
+    or eax, 0b10000111   ; present | write | user | huge
     mov [p2 + ecx * 8], eax
     inc ecx
     cmp ecx, 2048
