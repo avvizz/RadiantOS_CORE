@@ -6,6 +6,9 @@
 #include "interrupts.h"
 #include "kstring.h"
 #include "kmalloc.h"
+#include "fs.h"
+#include "elf.h"
+#include "kconsole.h"
 #include "pmm.h"
 #include "task.h"
 #include "gui.h"
@@ -103,14 +106,30 @@ int window_create(WinType type, const char *title, const char *label,
 void window_destroy(int idx);
 int find_by_type(WinType t);
 
+static void elfinfo_print(const char *line) { t_print(line); }
+
+static void ls_print_cb(const char *name, size_t size, void * /*user*/) {
+    char line[64];
+    char *p = line;
+    while (*name) *p++ = *name++;
+    *p++ = ' ';
+    char t[12]; int n = 0; size_t s = size;
+    if (!s) t[n++] = '0';
+    else while (s) { t[n++] = (char)('0' + s % 10); s /= 10; }
+    while (n) *p++ = t[--n];
+    *p++ = 'B'; *p = 0;
+    t_print(line);
+}
+
 void t_run(const char *cmd) {
     char buf[80];
     if (!*cmd) return;
     if (streq(cmd, "help")) {
         t_print("help clear about uptime mem tasks");
-        t_print("echo <text>");
-        t_print("win  - new notepad window");
-        t_print("about - open About window");
+        t_print("echo <text> | win | about");
+        t_print("ls cat <f> rm <f> touch <f>");
+        t_print("write <f> <text>");
+        t_print("run <elf> | elfinfo <elf>");
     } else if (streq(cmd, "clear")) {
         tn = 0;
     } else if (streq(cmd, "about")) {
@@ -158,6 +177,51 @@ void t_run(const char *cmd) {
                                360, 220, true);
         if (id < 0) t_print("Cannot create window");
         else t_print("New notepad created");
+    } else if (streq(cmd, "ls")) {
+        fs_list(ls_print_cb, 0);
+        char *p = put_s(buf, "files: ");
+        p = put_n(p, (uint64_t)fs_count());
+        *p = 0;
+        t_print(buf);
+    } else if (starts(cmd, "cat ")) {
+        const char *name = cmd + 4;
+        char content[256];
+        int n = fs_read(name, content, sizeof(content) - 1);
+        if (n < 0) t_print("No such file");
+        else {
+            content[n] = 0;
+            t_print(content);
+        }
+    } else if (starts(cmd, "rm ")) {
+        if (fs_delete(cmd + 3) == 0) t_print("Deleted");
+        else t_print("No such file");
+    } else if (starts(cmd, "touch ")) {
+        if (fs_create(cmd + 6) == 0) t_print("Created");
+        else t_print("Failed (exists?)");
+    } else if (starts(cmd, "write ")) {
+        /* write name text... */
+        const char *p = cmd + 6;
+        char name[FS_NAME_MAX + 1];
+        int ni = 0;
+        while (*p && *p != ' ' && ni < FS_NAME_MAX) name[ni++] = *p++;
+        name[ni] = 0;
+        if (*p == ' ') p++;
+        if (!name[0]) t_print("Usage: write <file> <text>");
+        else if (fs_write(name, p, strlen(p)) == 0) t_print("OK");
+        else t_print("Write failed");
+    } else if (starts(cmd, "run ")) {
+        t_print("Running...");
+        int r = elf_run(cmd + 4);
+        if (r >= 0) {
+            char b[40];
+            char *p = put_s(b, "Exit code: ");
+            p = put_n(p, (uint64_t)r);
+            *p = 0;
+            t_print(b);
+        } else if (r == -1) t_print("Load failed");
+        else t_print("Bad ELF");
+    } else if (starts(cmd, "elfinfo ")) {
+        elf_info(cmd + 8, elfinfo_print);
     } else if (starts(cmd, "echo ")) {
         t_print(cmd + 5);
     } else {
@@ -477,7 +541,26 @@ void handle_mouse(int mx, int my, bool left) {
 
 } // namespace
 
+static void term_write_hook(const char *data, size_t len) {
+    /* выводим в терминал построчно */
+    char line[128];
+    size_t n = 0;
+    for (size_t i = 0; i < len; i++) {
+        char ch = data[i];
+        if (ch == '\n' || n >= sizeof(line) - 1) {
+            line[n] = 0;
+            if (n) t_print(line);
+            n = 0;
+            if (ch != '\n') line[n++] = ch;
+        } else {
+            line[n++] = ch;
+        }
+    }
+    if (n) { line[n] = 0; t_print(line); }
+}
+
 extern "C" void gui_run(void) {
+    kconsole_set_hook(term_write_hook);
     /* стартовые окна */
     window_create(WT_TERM,  "Terminal",        "Terminal", 40,  50, 580, 340, false);
     window_create(WT_ABOUT, "About RadiantOS", "About",    420, 140, 440, 250, true);

@@ -6,6 +6,10 @@
 #include "pmm.h"
 #include "kmalloc.h"
 #include "task.h"
+#include "fs.h"
+#include "elf.h"
+#include "gdt.h"
+#include "syscall.h"
 #include "io.h"
 
 class Console {
@@ -93,7 +97,9 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
     serial_init();
     serial_puts("RadiantOS starting...\n");
 
+    gdt_init();
     idt_init();
+    syscall_init();
     pic_init();
     timer_init(100);
     keyboard_init();
@@ -105,6 +111,12 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
 
     kmalloc_init();
     serial_puts("kmalloc ready\n");
+
+    fs_init();
+    elf_install_demos();
+    serial_puts("fs ready, files=");
+    serial_putdec((unsigned long long)fs_count());
+    serial_puts("\n");
 
     task_init();
     serial_puts("scheduler ready, tasks=");

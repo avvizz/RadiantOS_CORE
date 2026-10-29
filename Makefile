@@ -11,7 +11,7 @@ LDFLAGS  = -m64 -T linker.ld -nostdlib -no-pie -Wl,-z,max-page-size=0x1000 -Wl,-
 
 OBJS = build/boot.o build/isr.o build/idt.o build/pic.o build/timer.o \
        build/keyboard.o build/mouse.o build/string.o build/fb.o \
-       build/vga.o build/gui.o build/pmm.o build/kmalloc.o build/task.o build/switch.o build/kernel.o
+       build/vga.o build/gui.o build/pmm.o build/kmalloc.o build/kconsole.o build/task.o build/switch.o build/fs.o build/elf.o build/gdt.o build/syscall.o build/syscall_entry.o build/kernel.o
 
 all: build/radiantos.bin
 

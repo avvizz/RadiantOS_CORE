@@ -35,9 +35,19 @@ static const char *exc_names[32] = {
 
 static void set_gate(int n, uint64_t addr) {
     idt[n].off_low  = addr & 0xFFFF;
-    idt[n].selector = 0x08;      /* кодовый сегмент из boot.asm */
+    idt[n].selector = 0x08;
     idt[n].ist      = 0;
-    idt[n].flags    = 0x8E;      /* present, ring 0, interrupt gate */
+    idt[n].flags    = 0x8E;
+    idt[n].off_mid  = (addr >> 16) & 0xFFFF;
+    idt[n].off_high = (uint32_t)(addr >> 32);
+    idt[n].zero     = 0;
+}
+
+void idt_set_gate(int n, uint64_t addr, uint8_t dpl) {
+    idt[n].off_low  = addr & 0xFFFF;
+    idt[n].selector = 0x08;
+    idt[n].ist      = 0;
+    idt[n].flags    = (uint8_t)(0x8E | ((dpl & 3) << 5));
     idt[n].off_mid  = (addr >> 16) & 0xFFFF;
     idt[n].off_high = (uint32_t)(addr >> 32);
     idt[n].zero     = 0;
