@@ -19,15 +19,24 @@ const int TB = 28;
 const int TASKBAR = 36;
 const int MAX_WINDOWS = 12;
 
-const uint32_t C_BODY     = 0xF2F2F2;
-const uint32_t C_TEXT     = 0x1A1A1A;
-const uint32_t C_ACTIVE   = 0x2F6FDE;
-const uint32_t C_INACTIVE = 0x6B7A90;
-const uint32_t C_CLOSE    = 0xD64545;
+/* Тема: тёмно-синий + оранжевый + белый + красный */
+const uint32_t C_BODY     = 0x0E1A2B;  /* фон окна */
+const uint32_t C_BODY_ALT = 0x152338;
+const uint32_t C_TEXT     = 0xE8EEF6;  /* основной текст */
+const uint32_t C_MUTED    = 0x8BA3C0;
+const uint32_t C_ACTIVE   = 0xFF8C32;  /* оранжевый акцент */
+const uint32_t C_INACTIVE = 0x243448;
+const uint32_t C_CLOSE    = 0xE84141;  /* красный */
+const uint32_t C_CLOSE_H  = 0xFF6B6B;
 const uint32_t C_WHITE    = 0xFFFFFF;
-const uint32_t C_TASK     = 0x141B24;
-const uint32_t C_BTN      = 0x2A3646;
-const uint32_t C_BTN_ON   = 0x3D5A80;
+const uint32_t C_TASK     = 0x0A1220;
+const uint32_t C_BTN      = 0x1A2A40;
+const uint32_t C_BTN_ON   = 0xFF8C32;
+const uint32_t C_ORANGE   = 0xFF8C32;
+const uint32_t C_ORANGE_D = 0xCC6E28;
+const uint32_t C_LINE     = 0x2A4060;
+const uint32_t C_TERM_FG  = 0xFFB86C;
+const uint32_t C_SHADOW   = 0x050A12;
 
 enum WinType { WT_TERM = 0, WT_ABOUT = 1, WT_SYS = 2, WT_NOTE = 3 };
 
@@ -366,26 +375,38 @@ void draw_cursor_on_screen(int mx, int my) {
     cur_ox = mx; cur_oy = my;
 }
 
+
 void draw_desktop() {
     int W = fb_width(), H = fb_height();
-    /* более насыщенный градиент */
+    /* глубокий синий градиент */
     for (int y = 0; y < H; y++) {
         int t = y * 255 / (H ? H : 1);
-        uint32_t r = (uint32_t)((12 * (255 - t) + 40 * t) / 255);
-        uint32_t g = (uint32_t)((28 * (255 - t) + 70 * t) / 255);
-        uint32_t b = (uint32_t)((48 * (255 - t) + 110 * t) / 255);
+        uint32_t r = (uint32_t)((8 * (255 - t) + 18 * t) / 255);
+        uint32_t g = (uint32_t)((18 * (255 - t) + 40 * t) / 255);
+        uint32_t b = (uint32_t)((36 * (255 - t) + 72 * t) / 255);
         fb_rect(0, y, W, 1, (r << 16) | (g << 8) | b);
     }
-    /* декоративные «иконки» на рабочем столе */
-    fb_rect(24, 24, 64, 64, 0x1A2332);
-    fb_rect(26, 26, 60, 40, 0x2F6FDE);
-    fb_text(30, 72, "Term", 0xC0D0E0, 1);
+    /* мягкая «подсветка» сверху */
+    for (int y = 0; y < 120 && y < H; y++) {
+        int a = (120 - y) * 20 / 120;
+        fb_rect(0, y, W, 1, ((8 + a) << 16) | ((22 + a) << 8) | (48 + a * 2));
+    }
 
-    fb_rect(24, 110, 64, 64, 0x1A2332);
-    fb_rect(26, 112, 60, 40, 0x238636);
-    fb_text(28, 158, "About", 0xC0D0E0, 1);
+    /* иконки рабочего стола — плитки */
+    auto icon = [](int x, int y, uint32_t col, const char *label) {
+        fb_rect(x + 3, y + 3, 56, 56, C_SHADOW);
+        fb_rect(x, y, 56, 56, 0x152338);
+        fb_rect(x + 1, y + 1, 54, 54, 0x1A2A40);
+        fb_rect(x + 10, y + 10, 36, 28, col);
+        fb_rect(x + 10, y + 10, 36, 3, C_WHITE);
+        fb_text(x + (56 - (int)strlen(label) * 8) / 2, y + 44, label, C_MUTED, 1);
+    };
+    icon(28, 28, 0xFF8C32, "Term");
+    icon(28, 108, 0x3D8BFF, "About");
+    icon(28, 188, 0xE84141, "Sys");
 
-    fb_text(W - 280, H - TASKBAR - 50, "RadiantOS", 0x4A7A9A, 3);
+    /* watermark */
+    fb_text(W - 260, H - TASKBAR - 48, "RadiantOS", 0x1E3348, 3);
     fb_snapshot();
 }
 
@@ -393,118 +414,140 @@ void draw_window(int i, bool active) {
     Window *w = wins[i];
     if (!w || !w->visible) return;
 
-    bool dark = (w->type == WT_TERM || w->type == WT_NOTE);
-    /* тень */
-    fb_rect(w->x + 6, w->y + 6, w->w, w->h, 0x080C12);
-    /* рамка */
-    fb_rect(w->x - 1, w->y - 1, w->w + 2, w->h + 2, active ? 0x3D7AE8 : 0x2A3344);
-    /* заголовок */
-    fb_rect(w->x, w->y, w->w, TB, active ? C_ACTIVE : C_INACTIVE);
-    fb_text(w->x + 10, w->y + 6, w->title, C_WHITE, 2);
-    /* close */
-    fb_rect(w->x + w->w - TB + 4, w->y + 4, TB - 8, TB - 8, C_CLOSE);
-    fb_text(w->x + w->w - TB + 8, w->y + 6, "x", C_WHITE, 2);
-    fb_rect(w->x, w->y + TB, w->w, w->h - TB, dark ? 0x0C1117 : C_BODY);
+    bool dark = true; /* единый тёмный стиль */
 
-    int bx = w->x + 8, by = w->y + TB + 8;
+    /* тень */
+    fb_rect(w->x + 5, w->y + 5, w->w, w->h, C_SHADOW);
+    /* внешняя рамка */
+    fb_rect(w->x - 1, w->y - 1, w->w + 2, w->h + 2, active ? C_ORANGE : C_LINE);
+    /* заголовок */
+    fb_rect(w->x, w->y, w->w, TB, active ? C_ORANGE : C_INACTIVE);
+    if (active) {
+        /* полоска снизу заголовка */
+        fb_rect(w->x, w->y + TB - 2, w->w, 2, C_ORANGE_D);
+    }
+    fb_text(w->x + 12, w->y + 6, w->title, active ? 0x1A1008 : C_WHITE, 2);
+
+    /* кнопка закрытия */
+    fb_rect(w->x + w->w - TB + 3, w->y + 3, TB - 6, TB - 6, C_CLOSE);
+    fb_text(w->x + w->w - TB + 8, w->y + 6, "x", C_WHITE, 2);
+
+    /* тело */
+    fb_rect(w->x, w->y + TB, w->w, w->h - TB, dark ? C_BODY : C_BODY_ALT);
+    /* внутренний отступ-линия */
+    fb_rect(w->x, w->y + TB, w->w, 1, C_LINE);
+
+    int bx = w->x + 12, by = w->y + TB + 12;
     char buf[64];
 
     if (w->type == WT_TERM) {
-        for (int r = 0; r < tn; r++) fb_text(bx, by + r * 18, tl[r], 0x7CFC9A, 2);
+        for (int r = 0; r < tn; r++)
+            fb_text(bx, by + r * 18, tl[r], C_TERM_FG, 2);
         char *p = put_s(buf, "> ");
         for (int k = 0; k < til; k++) *p++ = tin[k];
         *p++ = '_'; *p = 0;
-        fb_text(bx, by + TROWS * 18 + 4, buf, 0xFFFFFF, 2);
+        fb_text(bx, by + TROWS * 18 + 4, buf, C_WHITE, 2);
     } else if (w->type == WT_ABOUT) {
-        fb_text(bx, by,       "RadiantOS 0.4",             0x2F6FDE, 3);
-        fb_text(bx, by + 36,  "64-bit kernel: C and C++", C_TEXT, 2);
-        fb_text(bx, by + 60,  "1280x720 graphics",        C_TEXT, 2);
-        fb_text(bx, by + 84,  "User mode + syscalls",     C_TEXT, 2);
-        fb_text(bx, by + 108, "Dynamic windows + RAM FS", C_TEXT, 2);
-        fb_text(bx, by + 140, "Try: run hello.elf",       C_TEXT, 2);
+        fb_text(bx, by,       "RadiantOS 0.5",              C_ORANGE, 3);
+        fb_text(bx, by + 36,  "64-bit hobby OS",            C_TEXT, 2);
+        fb_text(bx, by + 58,  "C / C++ kernel, user mode",  C_MUTED, 2);
+        fb_text(bx, by + 80,  "Orange & midnight theme",    C_MUTED, 2);
+        fb_rect(bx, by + 108, w->w - 28, 1, C_LINE);
+        fb_text(bx, by + 120, "run hello.elf  |  help",     C_ORANGE, 2);
     } else if (w->type == WT_SYS) {
         int mx, my, mb;
         mouse_get(&mx, &my, &mb);
-        char *p = put_s(buf, "Screen: ");
+        char *p = put_s(buf, "Screen  ");
         p = put_n(p, (uint64_t)fb_width()); p = put_s(p, "x"); p = put_n(p, (uint64_t)fb_height());
         *p = 0; fb_text(bx, by, buf, C_TEXT, 2);
-        p = put_s(buf, "Uptime: "); p = put_n(p, timer_ticks() / 100); p = put_s(p, " s");
-        *p = 0; fb_text(bx, by + 24, buf, C_TEXT, 2);
-        p = put_s(buf, "Mouse: "); p = put_n(p, (uint64_t)mx); p = put_s(p, ", "); p = put_n(p, (uint64_t)my);
-        *p = 0; fb_text(bx, by + 48, buf, C_TEXT, 2);
-        p = put_s(buf, "Windows: "); p = put_n(p, (uint64_t)nwin);
+        p = put_s(buf, "Uptime  "); p = put_n(p, timer_ticks() / 100); p = put_s(p, " s");
+        *p = 0; fb_text(bx, by + 24, buf, C_MUTED, 2);
+        p = put_s(buf, "Mouse   "); p = put_n(p, (uint64_t)mx); p = put_s(p, ", "); p = put_n(p, (uint64_t)my);
+        *p = 0; fb_text(bx, by + 48, buf, C_MUTED, 2);
+        p = put_s(buf, "Windows "); p = put_n(p, (uint64_t)nwin);
         *p = 0; fb_text(bx, by + 72, buf, C_TEXT, 2);
-        p = put_s(buf, "Free pages: "); p = put_n(p, pmm_free_pages_count());
-        *p = 0; fb_text(bx, by + 96, buf, C_TEXT, 2);
-        p = put_s(buf, "Heap used: "); p = put_n(p, kmalloc_used_bytes()); p = put_s(p, " B");
-        *p = 0; fb_text(bx, by + 120, buf, C_TEXT, 2);
+        p = put_s(buf, "Free pg "); p = put_n(p, pmm_free_pages_count());
+        *p = 0; fb_text(bx, by + 96, buf, C_MUTED, 2);
+        p = put_s(buf, "Heap    "); p = put_n(p, kmalloc_used_bytes()); p = put_s(p, " B");
+        *p = 0; fb_text(bx, by + 120, buf, C_MUTED, 2);
     } else if (w->type == WT_NOTE) {
-        fb_text(bx, by,      "Notepad", 0x7CFC9A, 2);
-        fb_text(bx, by + 28, "Created with kmalloc.", C_TEXT, 2);
-        fb_text(bx, by + 52, "Close with X to free.", C_TEXT, 2);
-        char *p = put_s(buf, "id: ");
+        fb_text(bx, by,      "Notepad", C_ORANGE, 2);
+        fb_text(bx, by + 28, "Dynamic window (kmalloc)", C_MUTED, 2);
+        fb_text(bx, by + 52, "Close with X to free memory", C_MUTED, 2);
+        char *p = put_s(buf, "id ");
         p = put_n(p, (uint64_t)w->id);
         *p = 0;
-        fb_text(bx, by + 90, buf, 0x8090A0, 2);
+        fb_text(bx, by + 90, buf, C_ORANGE, 2);
     }
 }
 
 void draw_start_menu() {
     if (!start_menu) return;
     int H = fb_height();
-    int my = H - TASKBAR - 200;
-    fb_rect(4, my, 200, 196, 0x1B2433);
-    fb_rect(4, my, 200, 196, 0x1B2433);
-    fb_rect(4, my, 200, 2, C_ACTIVE);
-    fb_text(16, my + 12, "RadiantOS Menu", C_WHITE, 2);
+    int my = H - TASKBAR - 220;
+    int mw = 220;
 
-    fb_rect(12, my + 40, 184, 28, C_BTN);
-    fb_text(24, my + 46, "Terminal", C_WHITE, 2);
+    fb_rect(6, my + 4, mw, 216, C_SHADOW);
+    fb_rect(4, my, mw, 216, 0x0E1A2B);
+    fb_rect(4, my, mw, 3, C_ORANGE);
+    fb_rect(4, my, 3, 216, C_ORANGE);
 
-    fb_rect(12, my + 74, 184, 28, C_BTN);
-    fb_text(24, my + 80, "About", C_WHITE, 2);
+    fb_text(16, my + 14, "RadiantOS", C_ORANGE, 2);
+    fb_text(16, my + 34, "Menu", C_MUTED, 1);
+    fb_rect(12, my + 52, mw - 16, 1, C_LINE);
 
-    fb_rect(12, my + 108, 184, 28, C_BTN);
-    fb_text(24, my + 114, "System", C_WHITE, 2);
-
-    fb_rect(12, my + 142, 184, 28, C_BTN);
-    fb_text(24, my + 148, "New Note", C_WHITE, 2);
+    const char *items[] = { "Terminal", "About", "System", "New Note" };
+    for (int i = 0; i < 4; i++) {
+        int iy = my + 64 + i * 36;
+        fb_rect(12, iy, mw - 16, 30, C_BTN);
+        fb_rect(12, iy, 4, 30, C_ORANGE);
+        fb_text(28, iy + 8, items[i], C_WHITE, 2);
+    }
 }
 
 void draw_taskbar() {
     int W = fb_width(), H = fb_height();
     int ty = H - TASKBAR;
-    fb_rect(0, ty, W, TASKBAR, 0x0F1520);
-    fb_rect(0, ty, W, 2, C_ACTIVE);
+
+    fb_rect(0, ty, W, TASKBAR, C_TASK);
+    fb_rect(0, ty, W, 3, C_ORANGE);  /* оранжевая линия сверху */
 
     /* Start */
-    fb_rect(4, ty + 4, 100, 28, start_menu ? C_BTN_ON : C_ACTIVE);
-    fb_text(20, ty + 10, "Start", C_WHITE, 2);
+    fb_rect(4, ty + 5, 88, 26, start_menu ? C_ORANGE : C_BTN);
+    fb_text(18, ty + 11, "Start", start_menu ? 0x1A1008 : C_WHITE, 2);
 
-    /* +Win */
-    fb_rect(110, ty + 4, 70, 28, C_BTN);
-    fb_text(122, ty + 10, "+Win", C_WHITE, 2);
+    /* + */
+    fb_rect(96, ty + 5, 36, 26, C_BTN);
+    fb_text(108, ty + 11, "+", C_ORANGE, 2);
 
+    /* кнопки окон — короткие подписи, чтобы не обрезало */
     int act = active_window();
-    int bx = 190;
-    for (int i = 0; i < nwin && bx + 120 < W - 140; i++) {
+    int bx = 140;
+    int btn_w = 90;
+    for (int i = 0; i < nwin && bx + btn_w < W - 130; i++) {
         if (!wins[i]) continue;
-        fb_rect(bx, ty + 4, 110, 28, (wins[i]->visible && i == act) ? C_BTN_ON : C_BTN);
-        fb_text(bx + 6, ty + 10, wins[i]->label,
-                wins[i]->visible ? C_WHITE : 0x8090A0, 2);
-        bx += 116;
+        bool on = wins[i]->visible && i == act;
+        fb_rect(bx, ty + 5, btn_w, 26, on ? C_ORANGE : C_BTN);
+        if (on) fb_rect(bx, ty + 28, btn_w, 3, C_ORANGE_D);
+        /* label max ~9 chars at scale 2 */
+        const char *lab = wins[i]->label;
+        fb_text(bx + 8, ty + 11, lab, on ? 0x1A1008 : C_WHITE, 2);
+        bx += btn_w + 6;
     }
 
-    /* часы HH:MM:SS из uptime */
+    /* часы */
     uint64_t sec = timer_ticks() / 100;
     uint64_t hh = (sec / 3600) % 24, mm = (sec / 60) % 60, ss = sec % 60;
-    char buf[32];
+    char buf[16];
     char *p = buf;
     *p++ = (char)('0' + hh / 10); *p++ = (char)('0' + hh % 10); *p++ = ':';
     *p++ = (char)('0' + mm / 10); *p++ = (char)('0' + mm % 10); *p++ = ':';
     *p++ = (char)('0' + ss / 10); *p++ = (char)('0' + ss % 10); *p = 0;
-    fb_rect(W - 120, ty + 4, 112, 28, 0x1A2332);
-    fb_text(W - 100, ty + 10, buf, 0xE0E8F0, 2);
+
+    int cw = 108;
+    fb_rect(W - cw - 8, ty + 5, cw, 26, 0x152338);
+    fb_rect(W - cw - 8, ty + 5, 3, 26, C_ORANGE);
+    fb_text(W - cw + 8, ty + 11, buf, C_WHITE, 2);
 }
 
 /* Полная перерисовка UI (без курсора) */
@@ -529,9 +572,9 @@ void handle_mouse(int mx, int my, bool left) {
     if (pressed) {
         /* клик по меню Пуск */
         if (start_menu) {
-            int my0 = H - TASKBAR - 200;
-            if (mx >= 12 && mx < 196 && my >= my0 + 40 && my < my0 + 170) {
-                int item = (my - (my0 + 40)) / 34;
+            int my0 = H - TASKBAR - 220;
+            if (mx >= 12 && mx < 216 && my >= my0 + 64 && my < my0 + 64 + 4 * 36) {
+                int item = (my - (my0 + 64)) / 36;
                 if (item == 0) {
                     int i = find_by_type(WT_TERM);
                     if (i >= 0) { wins[i]->visible = true; raise_window(i); }
@@ -557,9 +600,9 @@ void handle_mouse(int mx, int my, bool left) {
         }
 
         if (my >= H - TASKBAR) {
-            if (mx >= 4 && mx < 104) {
+            if (mx >= 4 && mx < 92) {
                 start_menu = !start_menu;
-            } else if (mx >= 110 && mx < 180) {
+            } else if (mx >= 96 && mx < 136) {
                 char title[32];
                 char *p = put_s(title, "Note #");
                 p = put_n(p, (uint64_t)next_id); *p = 0;
@@ -568,10 +611,11 @@ void handle_mouse(int mx, int my, bool left) {
                               360, 220, true);
                 start_menu = false;
             } else {
-                int bx = 190;
-                for (int i = 0; i < nwin && bx + 120 < W - 140; i++) {
-                    if (!wins[i]) { bx += 116; continue; }
-                    if (mx >= bx && mx < bx + 110) {
+                int bx = 140;
+                int btn_w = 90;
+                for (int i = 0; i < nwin && bx + btn_w < W - 130; i++) {
+                    if (!wins[i]) { bx += btn_w + 6; continue; }
+                    if (mx >= bx && mx < bx + btn_w) {
                         if (wins[i]->visible && i == active_window())
                             wins[i]->visible = false;
                         else {
@@ -580,16 +624,16 @@ void handle_mouse(int mx, int my, bool left) {
                         }
                         break;
                     }
-                    bx += 116;
+                    bx += btn_w + 6;
                 }
                 start_menu = false;
             }
         } else {
             /* иконки рабочего стола */
-            if (mx >= 24 && mx < 88 && my >= 24 && my < 88) {
+            if (mx >= 28 && mx < 84 && my >= 28 && my < 84) {
                 int i = find_by_type(WT_TERM);
                 if (i >= 0) { wins[i]->visible = true; raise_window(i); }
-            } else if (mx >= 24 && mx < 88 && my >= 110 && my < 174) {
+            } else if (mx >= 28 && mx < 84 && my >= 108 && my < 164) {
                 int i = find_by_type(WT_ABOUT);
                 if (i >= 0) { wins[i]->visible = true; raise_window(i); }
                 else window_create(WT_ABOUT, "About RadiantOS", "About", 400, 120, 440, 250, true);
@@ -645,9 +689,9 @@ static void term_write_hook(const char *data, size_t len) {
 extern "C" void gui_run(void) {
     kconsole_set_hook(term_write_hook);
     /* стартовые окна */
-    window_create(WT_TERM,  "Terminal",        "Terminal", 40,  50, 580, 340, false);
-    window_create(WT_ABOUT, "About RadiantOS", "About",    420, 140, 440, 250, true);
-    window_create(WT_SYS,   "System",          "System",   100, 360, 420, 200, false);
+    window_create(WT_TERM,  "Terminal",        "Term", 48,  48, 620, 360, false);
+    window_create(WT_ABOUT, "About RadiantOS", "About",    480, 120, 460, 260, true);
+    window_create(WT_SYS,   "System",          "Sys",      120, 380, 440, 220, false);
 
     t_print("Welcome to RadiantOS!");
     t_print("Type help  |  win  |  mem");
@@ -686,13 +730,23 @@ extern "C" void gui_run(void) {
         }
 
         uint64_t sec = timer_ticks() / 100;
-        if (sec != lastSec) { lastSec = sec; dirty = true; }
+        if (sec != lastSec) {
+            lastSec = sec;
+            if (!dirty) {
+                /* только часы — без полного кадра */
+                draw_taskbar();
+                int W = fb_width(), H = fb_height();
+                fb_present_rect(0, H - TASKBAR, W, TASKBAR);
+                draw_cursor_on_screen(mx, my);
+            } else {
+                dirty = true;
+            }
+        }
 
         if (dirty) {
             draw_frame_content();
             draw_cursor_on_screen(mx, my);
             dirty = false;
-            last_mx = mx; last_my = my;
             continue;
         }
 
