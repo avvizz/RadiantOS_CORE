@@ -8,6 +8,8 @@
 #include "kmalloc.h"
 #include "fs.h"
 #include "elf.h"
+#include "proc.h"
+#include "task.h"
 #include "kconsole.h"
 #include "pmm.h"
 #include "task.h"
@@ -140,7 +142,7 @@ void t_run(const char *cmd) {
         t_print("echo <text> | win | about");
         t_print("ls cat <f> rm <f> touch <f>");
         t_print("write <f> <text>");
-        t_print("run <elf> | elfinfo <elf>");
+        t_print("run <elf> | shell | ps | elfinfo");
     } else if (streq(cmd, "clear")) {
         tn = 0;
     } else if (streq(cmd, "about")) {
@@ -221,16 +223,25 @@ void t_run(const char *cmd) {
         else if (fs_write(name, p, strlen(p)) == 0) t_print("OK");
         else t_print("Write failed");
     } else if (starts(cmd, "run ")) {
-        t_print("Running...");
-        int r = elf_run(cmd + 4);
-        if (r >= 0) {
+        int pid = proc_spawn(cmd + 4);
+        if (pid < 0) t_print("Spawn failed");
+        else {
             char b[40];
-            char *p = put_s(b, "Exit code: ");
-            p = put_n(p, (uint64_t)r);
+            char *p = put_s(b, "Spawned pid ");
+            p = put_n(p, (uint64_t)pid);
             *p = 0;
             t_print(b);
-        } else if (r == -1) t_print("Load failed");
-        else t_print("Bad ELF");
+        }
+    } else if (streq(cmd, "ps")) {
+        char b[40];
+        char *p = put_s(b, "procs: ");
+        p = put_n(p, (uint64_t)proc_count());
+        *p = 0;
+        t_print(b);
+    } else if (streq(cmd, "shell")) {
+        int pid = proc_spawn("shell.elf");
+        if (pid < 0) t_print("No shell.elf");
+        else t_print("shell started");
     } else if (starts(cmd, "elfinfo ")) {
         elf_info(cmd + 8, elfinfo_print);
     } else if (starts(cmd, "echo ")) {
@@ -750,10 +761,12 @@ extern "C" void gui_run(void) {
             continue;
         }
 
+        task_maybe_yield();
         __asm__ volatile("cli");
-        if (mouse_seq() == lastSeq && !keyboard_pending() && timer_ticks() / 100 == lastSec)
-            __asm__ volatile("sti; hlt");
-        else
+        if (mouse_seq() == lastSeq && !keyboard_pending() && timer_ticks() / 100 == lastSec) {
+            __asm__ volatile("sti");
+            task_yield();
+        } else
             __asm__ volatile("sti");
     }
 }

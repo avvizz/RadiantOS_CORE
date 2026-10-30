@@ -10,6 +10,8 @@
 #include "elf.h"
 #include "gdt.h"
 #include "vmm.h"
+#include "proc.h"
+#include "initrd.h"
 #include "syscall.h"
 #include "io.h"
 
@@ -116,6 +118,8 @@ extern "C" void kernel_main(unsigned magic, unsigned mbinfo) {
 
     fs_init();
     elf_install_demos();
+    initrd_load(magic, mbinfo);
+    proc_init();
     serial_puts("fs ready, files=");
     serial_putdec((unsigned long long)fs_count());
     serial_puts("\n");
